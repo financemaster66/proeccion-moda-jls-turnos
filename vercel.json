@@ -1,4 +1,3 @@
-# vercel.json para Proección y Moda JLS
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
