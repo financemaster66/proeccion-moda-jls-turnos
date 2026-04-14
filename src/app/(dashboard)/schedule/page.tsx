@@ -16,7 +16,6 @@ import { DIAS_SEMANA_CORTO, CONFIGURACION_TURNOS, FOOTER_ATTRIBUTION } from '@/l
 import { format, addMonths, startOfMonth, addDays, isSameDay, parseISO, getDaysInMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
-import html2canvas from 'html2canvas'
 
 export default function SchedulePage() {
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -199,136 +198,134 @@ export default function SchedulePage() {
     setIsAutoScheduling(false)
   }
 
-  const exportRef = useRef<HTMLDivElement>(null)
-
   async function handleExportImage() {
-    const element = document.getElementById('schedule-grid')
-    if (!element) return
-
     try {
       toast.info('Generando imagen...')
 
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // Configuración
+      const COL = 140      // ancho por día
+      const ROW = 32       // alto por día
+      const GAP = 8
+      const STORE_HEADER = 70
+      const PADDING = 20
+      const TITLE_HEIGHT = 50
 
-      // Mapear colores de tienda a RGB simples (sin lab())
-      const coloresExport: Record<string, string> = {
-        blue: '#dbeafe',
-        green: '#dcfce7',
-        purple: '#f3e8ff',
-        orange: '#ffedd5',
+      // Calcular tamaño del canvas
+      const totalWidth = PADDING * 2 + dates.length * COL + (dates.length - 1) * GAP
+      const totalHeight = PADDING * 2 + TITLE_HEIGHT + stores.length * (STORE_HEADER + ROW + GAP)
+
+      // Crear canvas
+      const canvas = document.createElement('canvas')
+      canvas.width = totalWidth * 2  // scale 2x
+      canvas.height = totalHeight * 2
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('No se pudo crear el canvas')
+
+      ctx.scale(2, 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, totalWidth, totalHeight)
+
+      // Colores de tiendas
+      const coloresBg: Record<string, string> = {
+        blue: '#dbeafe', green: '#dcfce7', purple: '#f3e8ff', orange: '#ffedd5',
+      }
+      const coloresBorder: Record<string, string> = {
+        blue: '#3b82f6', green: '#22c55e', purple: '#a855f7', orange: '#f97316',
       }
 
-      // Crear contenedor para exportación
-      const exportContainer = document.createElement('div')
-      exportContainer.style.position = 'fixed'
-      exportContainer.style.top = '-9999px'
-      exportContainer.style.left = '0'
-      exportContainer.style.width = '1400px'
-      exportContainer.style.backgroundColor = '#ffffff'
-      exportContainer.style.padding = '24px'
-      exportContainer.style.fontFamily = 'system-ui, sans-serif'
-      document.body.appendChild(exportContainer)
+      let y = PADDING
 
       // Título
-      const title = document.createElement('h1')
-      title.textContent = `Horarios - ${format(rangeStart, "d 'de' MMMM yyyy", { locale: es })}`
-      title.style.fontSize = '20px'
-      title.style.fontWeight = 'bold'
-      title.style.marginBottom = '16px'
-      title.style.color = '#0f172a'
-      exportContainer.appendChild(title)
+      ctx.fillStyle = '#0f172a'
+      ctx.font = 'bold 18px system-ui, sans-serif'
+      ctx.fillText(`Horarios - ${format(rangeStart, "d 'de' MMMM yyyy", { locale: es })}`, PADDING, y + 20)
+      y += TITLE_HEIGHT
 
-      // Construir HTML manualmente con colores simples
-      stores.forEach((store) => {
-        const cardDiv = document.createElement('div')
-        cardDiv.style.border = '1px solid #e2e8f0'
-        cardDiv.style.borderRadius = '8px'
-        cardDiv.style.padding = '12px'
-        cardDiv.style.marginBottom = '12px'
-        cardDiv.style.backgroundColor = coloresExport[store.color_theme] || '#f1f5f9'
-        cardDiv.style.borderLeft = `4px solid ${store.color_theme === 'blue' ? '#3b82f6' : store.color_theme === 'green' ? '#22c55e' : store.color_theme === 'purple' ? '#a855f7' : '#f97316'}`
+      stores.forEach((store, storeIndex) => {
+        // Fondo de tarjeta
+        ctx.fillStyle = coloresBg[store.color_theme] || '#f1f5f9'
+        ctx.fillRect(PADDING, y, totalWidth - PADDING * 2, STORE_HEADER + ROW + GAP)
 
-        // Header de tienda
-        const headerHTML = `
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <div>
-              <div style="font-size: 16px; font-weight: bold; color: #1e293b;">${store.display_name}</div>
-              <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
-                ${store.schedule_weekday} (Lun-Sab) | ${store.schedule_weekend} (Dom-Fest) | ${store.lunch_minutes === 60 ? '1h' : '30min'} almuerzo
-              </div>
-            </div>
-            <div style="font-size: 12px; font-weight: 600; color: #475569;">${store.slots_required} turnos/día</div>
-          </div>
-        `
-        cardDiv.innerHTML = headerHTML
+        // Borde izquierdo
+        ctx.fillStyle = coloresBorder[store.color_theme] || '#64748b'
+        ctx.fillRect(PADDING, y, 4, STORE_HEADER + ROW + GAP)
 
-        // Grid de días
-        const daysContainer = document.createElement('div')
-        daysContainer.style.display = 'flex'
-        daysContainer.style.gap = '8px'
+        // Nombre de tienda
+        ctx.fillStyle = '#1e293b'
+        ctx.font = 'bold 14px system-ui, sans-serif'
+        ctx.fillText(store.display_name, PADDING + 12, y + 24)
 
+        // Horarios
+        ctx.fillStyle = '#64748b'
+        ctx.font = '11px system-ui, sans-serif'
+        ctx.fillText(`${store.schedule_weekday} (Lun-Sab) | ${store.schedule_weekend} (Dom-Fest)`, PADDING + 12, y + 42)
+
+        // Slots requeridos
+        ctx.fillStyle = '#475569'
+        ctx.font = 'bold 11px system-ui, sans-serif'
+        ctx.fillText(`${store.slots_required} turnos/día`, totalWidth - PADDING - 80, y + 24)
+
+        y += STORE_HEADER
+
+        // Días
+        let x = PADDING
         dates.forEach((date) => {
           const dayShifts = getShiftsForDateAndStore(date, store.id)
           const isWeekend = date.getDay() === 0 || date.getDay() === 6
           const dayName = format(date, 'EEEE', { locale: es })
           const dayNum = format(date, 'd')
 
-          const dayDiv = document.createElement('div')
-          dayDiv.style.width = '120px'
-          dayDiv.style.minWidth = '120px'
-          dayDiv.style.border = '1px solid #e2e8f0'
-          dayDiv.style.borderRadius = '6px'
-          dayDiv.style.padding = '8px'
-          dayDiv.style.backgroundColor = isWeekend ? '#f8fafc' : '#ffffff'
+          // Fondo del día
+          ctx.fillStyle = isWeekend ? '#f8fafc' : '#ffffff'
+          ctx.fillRect(x, y, COL, ROW)
 
-          dayDiv.innerHTML = `
-            <div style="text-align: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
-              <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: capitalize;">${dayName}</div>
-              <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${dayNum}</div>
-            </div>
-          `
+          // Borde del día
+          ctx.strokeStyle = '#e2e8f0'
+          ctx.strokeRect(x, y, COL, ROW)
 
-          // Turnos
-          dayShifts.forEach((shift) => {
+          // Nombre del día
+          ctx.fillStyle = '#475569'
+          ctx.font = 'bold 10px system-ui, sans-serif'
+          ctx.fillText(dayName.charAt(0).toUpperCase() + dayName.slice(1), x + 6, y + 14)
+
+          // Número del día
+          ctx.fillStyle = '#0f172a'
+          ctx.font = 'bold 12px system-ui, sans-serif'
+          ctx.fillText(dayNum, x + 6, y + 28)
+
+          // Turnos (máximo 3 visibles)
+          dayShifts.slice(0, 3).forEach((shift, idx) => {
             const employee = getEmployeeById(shift.employee_id)
             if (employee) {
-              const shiftDiv = document.createElement('div')
-              shiftDiv.style.backgroundColor = '#dbeafe'
-              shiftDiv.style.border = '1px solid #bfdbfe'
-              shiftDiv.style.borderRadius = '4px'
-              shiftDiv.style.padding = '6px'
-              shiftDiv.style.marginBottom = '4px'
-              shiftDiv.style.fontSize = '11px'
+              const shiftY = y + 38 + idx * 18
+              // Fondo turno
+              ctx.fillStyle = '#dbeafe'
+              ctx.fillRect(x + 4, shiftY - 10, COL - 8, 16)
+              ctx.strokeStyle = '#bfdbfe'
+              ctx.strokeRect(x + 4, shiftY - 10, COL - 8, 16)
 
-              const nameParts = employee.full_name.split(' ')
-              const displayName = nameParts.length > 2 ? `${nameParts[0]} ${nameParts[1]}...` : employee.full_name
+              // Nombre (truncado)
+              ctx.fillStyle = '#1e40af'
+              ctx.font = 'bold 9px system-ui, sans-serif'
+              const displayName = employee.full_name.length > 14
+                ? employee.full_name.substring(0, 12) + '...'
+                : employee.full_name
+              ctx.fillText(displayName, x + 8, shiftY)
 
-              shiftDiv.innerHTML = `
-                <div style="font-weight: 600; color: #1e40af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayName}</div>
-                <div style="font-size: 10px; color: #64748b;">${shift.start_time} - ${shift.end_time}</div>
-              `
-              dayDiv.appendChild(shiftDiv)
+              // Hora
+              ctx.fillStyle = '#64748b'
+              ctx.font = '8px system-ui, sans-serif'
+              ctx.fillText(`${shift.start_time}-${shift.end_time}`, x + 8, shiftY + 8)
             }
           })
 
-          daysContainer.appendChild(dayDiv)
+          x += COL + GAP
         })
 
-        cardDiv.appendChild(daysContainer)
-        exportContainer.appendChild(cardDiv)
+        y += ROW + GAP
       })
 
-      const canvas = await html2canvas(exportContainer, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: false,
-        allowTaint: false,
-        logging: false,
-        imageTimeout: 0,
-      })
-
-      document.body.removeChild(exportContainer)
-
+      // Descargar imagen
       const dataUrl = canvas.toDataURL('image/png')
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
 
