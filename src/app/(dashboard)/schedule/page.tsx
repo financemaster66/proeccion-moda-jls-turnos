@@ -208,27 +208,130 @@ export default function SchedulePage() {
     try {
       toast.info('Generando imagen...')
 
-      // Esperar a que todo esté renderizado
-      await new Promise(resolve => setTimeout(resolve, 200))
+      await new Promise(resolve => setTimeout(resolve, 300))
 
-      const canvas = await html2canvas(element, {
+      // Mapear colores de tienda a RGB simples (sin lab())
+      const coloresExport: Record<string, string> = {
+        blue: '#dbeafe',
+        green: '#dcfce7',
+        purple: '#f3e8ff',
+        orange: '#ffedd5',
+      }
+
+      // Crear contenedor para exportación
+      const exportContainer = document.createElement('div')
+      exportContainer.style.position = 'fixed'
+      exportContainer.style.top = '-9999px'
+      exportContainer.style.left = '0'
+      exportContainer.style.width = '1400px'
+      exportContainer.style.backgroundColor = '#ffffff'
+      exportContainer.style.padding = '24px'
+      exportContainer.style.fontFamily = 'system-ui, sans-serif'
+      document.body.appendChild(exportContainer)
+
+      // Título
+      const title = document.createElement('h1')
+      title.textContent = `Horarios - ${format(rangeStart, "d 'de' MMMM yyyy", { locale: es })}`
+      title.style.fontSize = '20px'
+      title.style.fontWeight = 'bold'
+      title.style.marginBottom = '16px'
+      title.style.color = '#0f172a'
+      exportContainer.appendChild(title)
+
+      // Construir HTML manualmente con colores simples
+      stores.forEach((store) => {
+        const cardDiv = document.createElement('div')
+        cardDiv.style.border = '1px solid #e2e8f0'
+        cardDiv.style.borderRadius = '8px'
+        cardDiv.style.padding = '12px'
+        cardDiv.style.marginBottom = '12px'
+        cardDiv.style.backgroundColor = coloresExport[store.color_theme] || '#f1f5f9'
+        cardDiv.style.borderLeft = `4px solid ${store.color_theme === 'blue' ? '#3b82f6' : store.color_theme === 'green' ? '#22c55e' : store.color_theme === 'purple' ? '#a855f7' : '#f97316'}`
+
+        // Header de tienda
+        const headerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div>
+              <div style="font-size: 16px; font-weight: bold; color: #1e293b;">${store.display_name}</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                ${store.schedule_weekday} (Lun-Sab) | ${store.schedule_weekend} (Dom-Fest) | ${store.lunch_minutes === 60 ? '1h' : '30min'} almuerzo
+              </div>
+            </div>
+            <div style="font-size: 12px; font-weight: 600; color: #475569;">${store.slots_required} turnos/día</div>
+          </div>
+        `
+        cardDiv.innerHTML = headerHTML
+
+        // Grid de días
+        const daysContainer = document.createElement('div')
+        daysContainer.style.display = 'flex'
+        daysContainer.style.gap = '8px'
+
+        dates.forEach((date) => {
+          const dayShifts = getShiftsForDateAndStore(date, store.id)
+          const isWeekend = date.getDay() === 0 || date.getDay() === 6
+          const dayName = format(date, 'EEEE', { locale: es })
+          const dayNum = format(date, 'd')
+
+          const dayDiv = document.createElement('div')
+          dayDiv.style.width = '120px'
+          dayDiv.style.minWidth = '120px'
+          dayDiv.style.border = '1px solid #e2e8f0'
+          dayDiv.style.borderRadius = '6px'
+          dayDiv.style.padding = '8px'
+          dayDiv.style.backgroundColor = isWeekend ? '#f8fafc' : '#ffffff'
+
+          dayDiv.innerHTML = `
+            <div style="text-align: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
+              <div style="font-size: 11px; font-weight: 600; color: #475569; text-transform: capitalize;">${dayName}</div>
+              <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${dayNum}</div>
+            </div>
+          `
+
+          // Turnos
+          dayShifts.forEach((shift) => {
+            const employee = getEmployeeById(shift.employee_id)
+            if (employee) {
+              const shiftDiv = document.createElement('div')
+              shiftDiv.style.backgroundColor = '#dbeafe'
+              shiftDiv.style.border = '1px solid #bfdbfe'
+              shiftDiv.style.borderRadius = '4px'
+              shiftDiv.style.padding = '6px'
+              shiftDiv.style.marginBottom = '4px'
+              shiftDiv.style.fontSize = '11px'
+
+              const nameParts = employee.full_name.split(' ')
+              const displayName = nameParts.length > 2 ? `${nameParts[0]} ${nameParts[1]}...` : employee.full_name
+
+              shiftDiv.innerHTML = `
+                <div style="font-weight: 600; color: #1e40af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayName}</div>
+                <div style="font-size: 10px; color: #64748b;">${shift.start_time} - ${shift.end_time}</div>
+              `
+              dayDiv.appendChild(shiftDiv)
+            }
+          })
+
+          daysContainer.appendChild(dayDiv)
+        })
+
+        cardDiv.appendChild(daysContainer)
+        exportContainer.appendChild(cardDiv)
+      })
+
+      const canvas = await html2canvas(exportContainer, {
         scale: 2,
         backgroundColor: '#ffffff',
-        useCORS: true,
+        useCORS: false,
         allowTaint: false,
         logging: false,
-        foreignObjectRendering: true,
-        ignoreElements: (el) => {
-          return el.classList?.contains('no-print') ||
-                 el.classList?.contains('add-shift-btn') ||
-                 el.tagName === 'BUTTON'
-        },
+        imageTimeout: 0,
       })
+
+      document.body.removeChild(exportContainer)
 
       const dataUrl = canvas.toDataURL('image/png')
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
 
-      // Download directo (más compatible)
       const link = document.createElement('a')
       link.download = filename
       link.href = dataUrl
@@ -314,9 +417,9 @@ export default function SchedulePage() {
       <main className="container mx-auto p-4">
         <div id="schedule-grid" ref={exportRef} className="space-y-4">
           {stores.map((store) => (
-            <Card key={store.id}>
+            <Card key={store.id} className="store-card">
               <CardContent className="p-4">
-                <div className={`mb-3 p-2 rounded-lg border-l-4 ${getStoreColorClass(store.color_theme)}`}>
+                <div className={`mb-3 p-2 rounded-lg border-l-4 ${getStoreColorClass(store.color_theme)} store-header`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <h2 className="font-bold text-lg">{store.display_name}</h2>
@@ -331,7 +434,7 @@ export default function SchedulePage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto pb-2">
+                <div className="overflow-x-auto pb-2 days-grid">
                   <div className="flex gap-2 min-w-max">
                     {dates.map((date) => {
                       const dayShifts = getShiftsForDateAndStore(date, store.id)
