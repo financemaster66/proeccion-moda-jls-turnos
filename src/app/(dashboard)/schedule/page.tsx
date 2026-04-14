@@ -202,74 +202,42 @@ export default function SchedulePage() {
   const exportRef = useRef<HTMLDivElement>(null)
 
   async function handleExportImage() {
-    const element = exportRef.current
+    const element = document.getElementById('schedule-grid')
     if (!element) return
 
     try {
       toast.info('Generando imagen...')
 
-      // Crear contenedor temporal para captura
-      const captureContainer = document.createElement('div')
-      captureContainer.style.position = 'fixed'
-      captureContainer.style.top = '0'
-      captureContainer.style.left = '0'
-      captureContainer.style.zIndex = '-1'
-      captureContainer.style.backgroundColor = '#ffffff'
-      captureContainer.style.padding = '16px'
-      document.body.appendChild(captureContainer)
+      // Esperar a que todo esté renderizado
+      await new Promise(resolve => setTimeout(resolve, 200))
 
-      // Clonar el contenido
-      const clonedContent = element.cloneNode(true) as HTMLElement
-      clonedContent.style.width = 'auto'
-      clonedContent.style.minWidth = 'none'
-      clonedContent.style.overflow = 'visible'
-
-      // Remover botones de añadir y eliminar del clon
-      const buttonsToRemove = clonedContent.querySelectorAll('.no-print, .add-shift-btn')
-      buttonsToRemove.forEach(btn => btn.remove())
-
-      captureContainer.appendChild(clonedContent)
-
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      const canvas = await html2canvas(captureContainer, {
+      const canvas = await html2canvas(element, {
         scale: 2,
         backgroundColor: '#ffffff',
         useCORS: true,
+        allowTaint: false,
         logging: false,
+        foreignObjectRendering: true,
+        ignoreElements: (el) => {
+          return el.classList?.contains('no-print') ||
+                 el.classList?.contains('add-shift-btn') ||
+                 el.tagName === 'BUTTON'
+        },
       })
-
-      // Limpiar contenedor temporal
-      document.body.removeChild(captureContainer)
 
       const dataUrl = canvas.toDataURL('image/png')
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
 
-      // Try to use Web Share API on mobile
-      if (navigator.share && navigator.canShare) {
-        const blob = await (await fetch(dataUrl)).blob()
-        const file = new File([blob], filename, { type: 'image/png' })
-        const shareData = { files: [file], title: 'Horario Proección y Moda JLS' }
-
-        if (navigator.canShare(shareData)) {
-          await navigator.share(shareData)
-          toast.success('Imagen compartida exitosamente')
-          return
-        }
-      }
-
-      // Fallback: download
+      // Download directo (más compatible)
       const link = document.createElement('a')
       link.download = filename
       link.href = dataUrl
-      document.body.appendChild(link)
       link.click()
-      document.body.removeChild(link)
 
       toast.success('Horario exportado exitosamente')
     } catch (err) {
       console.error('Export error:', err)
-      toast.error('Error al exportar horario')
+      toast.error('Error al exportar: ' + (err instanceof Error ? err.message : String(err)))
     }
   }
 
