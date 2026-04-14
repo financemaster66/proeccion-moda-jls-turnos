@@ -25,9 +25,14 @@ export default function SchedulePage() {
   const [shifts, setShifts] = useState<Shift[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddShiftOpen, setIsAddShiftOpen] = useState(false)
-  const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string; storeSchedule?: { start: string; end: string } } | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string } | null>(null)
   const [isAutoScheduling, setIsAutoScheduling] = useState(false)
   const [currentRange, setCurrentRange] = useState<'first' | 'second'>('first')
+
+  // Estados controlados para el dialog
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
+  const [startTime, setStartTime] = useState('09:00')
+  const [endTime, setEndTime] = useState('19:00')
 
   // Vista de 15 días: primer rango (1-15) o segundo rango (16-30/31)
   const monthStart = startOfMonth(currentDate)
@@ -124,32 +129,31 @@ export default function SchedulePage() {
     const schedule = isWeekend ? store?.schedule_weekend : store?.schedule_weekday
 
     // Parsear horario de la tienda (ej: "9:00-19:00" → start: "09:00", end: "19:00")
-    let startTime = "09:00"
-    let endTime = "19:00"
+    let start = "09:00"
+    let end = "19:00"
     if (schedule) {
-      const [start, end] = schedule.split('-').map(s => s.trim())
-      // Asegurar formato HH:00
-      startTime = start.includes(':') ? start.padStart(2, '0') : start + ':00'
-      endTime = end.includes(':') ? end.padStart(2, '0') : end + ':00'
+      const [startStr, endStr] = schedule.split('-').map(s => s.trim())
+      // Asegurar formato HH:MM (input time requiere 5 caracteres)
+      start = startStr.length === 4 ? '0' + startStr : startStr
+      end = endStr.length === 4 ? '0' + endStr : endStr
     }
 
-    setSelectedSlot({
-      date: format(date, 'yyyy-MM-dd'),
-      storeId,
-      storeSchedule: { start: startTime, end: endTime }
-    })
+    setSelectedSlot({ date: format(date, 'yyyy-MM-dd'), storeId })
+    setSelectedEmployeeId('')
+    setStartTime(start)
+    setEndTime(end)
     setIsAddShiftOpen(true)
   }
 
-  async function handleCreateShift(formData: FormData) {
-    if (!selectedSlot) return
+  async function handleCreateShift() {
+    if (!selectedSlot || !selectedEmployeeId) return
 
     const result = await createShift({
       store_id: selectedSlot.storeId,
-      employee_id: formData.get('employee_id') as string,
+      employee_id: selectedEmployeeId,
       shift_date: selectedSlot.date,
-      start_time: formData.get('start_time') as string,
-      end_time: formData.get('end_time') as string,
+      start_time: startTime,
+      end_time: endTime,
     })
 
     if (result.success) {
@@ -204,32 +208,39 @@ export default function SchedulePage() {
     try {
       toast.info('Generando imagen...')
 
-      // Ocultar header temporalmente para capturar solo la grilla
-      const header = document.querySelector('header')
-      const main = document.querySelector('main')
-      if (header) header.style.display = 'none'
-      if (main) main.style.padding = '0'
+      // Crear contenedor temporal para captura
+      const captureContainer = document.createElement('div')
+      captureContainer.style.position = 'fixed'
+      captureContainer.style.top = '0'
+      captureContainer.style.left = '0'
+      captureContainer.style.zIndex = '-1'
+      captureContainer.style.backgroundColor = '#ffffff'
+      captureContainer.style.padding = '16px'
+      document.body.appendChild(captureContainer)
 
-      await new Promise(resolve => setTimeout(resolve, 50))
+      // Clonar el contenido
+      const clonedContent = element.cloneNode(true) as HTMLElement
+      clonedContent.style.width = 'auto'
+      clonedContent.style.minWidth = 'none'
+      clonedContent.style.overflow = 'visible'
 
-      const canvas = await html2canvas(element, {
+      // Remover botones de añadir y eliminar del clon
+      const buttonsToRemove = clonedContent.querySelectorAll('.no-print, .add-shift-btn')
+      buttonsToRemove.forEach(btn => btn.remove())
+
+      captureContainer.appendChild(clonedContent)
+
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      const canvas = await html2canvas(captureContainer, {
         scale: 2,
         backgroundColor: '#ffffff',
         useCORS: true,
-        allowTaint: false,
         logging: false,
-        scrollX: 0,
-        scrollY: -window.scrollY,
-        ignoreElements: (el) => {
-          if (el.classList?.contains('no-print')) return true
-          if (el.classList?.contains('add-shift-btn')) return true
-          return false
-        },
       })
 
-      // Restaurar layout
-      if (header) header.style.display = ''
-      if (main) main.style.padding = ''
+      // Limpiar contenedor temporal
+      document.body.removeChild(captureContainer)
 
       const dataUrl = canvas.toDataURL('image/png')
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
@@ -426,15 +437,21 @@ export default function SchedulePage() {
       </main>
 
       {/* Add Shift Dialog */}
-      <Dialog open={isAddShiftOpen} onOpenChange={setIsAddShiftOpen}>
+      <Dialog open={isAddShiftOpen} onOpenChange={(open) => {
+        setIsAddShiftOpen(open)
+        if (!open) setSelectedSlot(null)
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Agregar Turno</DialogTitle>
           </DialogHeader>
-          <form action={handleCreateShift} className="space-y-4">
+          <form onSubmit={(e) => {
+            e.preventDefault()
+            handleCreateShift()
+          }} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="employee_id">Empleado</Label>
-              <Select name="employee_id" required>
+              <Select value={selectedEmployeeId} onValueChange={(value) => setSelectedEmployeeId(value ?? '')} required>
                 <SelectTrigger className="min-w-[200px]">
                   <SelectValue placeholder="Selecciona un empleado" />
                 </SelectTrigger>
@@ -458,20 +475,20 @@ export default function SchedulePage() {
                 <Label htmlFor="start_time">Hora Inicio</Label>
                 <Input
                   id="start_time"
-                  name="start_time"
                   type="time"
                   required
-                  defaultValue={selectedSlot?.storeSchedule?.start || "09:00"}
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="end_time">Hora Fin</Label>
                 <Input
                   id="end_time"
-                  name="end_time"
                   type="time"
                   required
-                  defaultValue={selectedSlot?.storeSchedule?.end || "19:00"}
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
                 />
               </div>
             </div>
