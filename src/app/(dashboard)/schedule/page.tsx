@@ -25,7 +25,7 @@ export default function SchedulePage() {
   const [shifts, setShifts] = useState<Shift[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isAddShiftOpen, setIsAddShiftOpen] = useState(false)
-  const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string } | null>(null)
+  const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string; storeSchedule?: { start: string; end: string } } | null>(null)
   const [isAutoScheduling, setIsAutoScheduling] = useState(false)
   const [currentRange, setCurrentRange] = useState<'first' | 'second'>('first')
 
@@ -102,13 +102,10 @@ export default function SchedulePage() {
     const store = getStoreById(storeId)
     if (!store) return []
 
+    // El manager puede añadir cualquier empleado activo (sin filtro por permiso)
+    // Solo auto-programar debe respetar permisos
     return employees.filter(emp => {
       if (!emp.is_active) return false
-
-      // Filter by work permission
-      if (store.name.toLowerCase().includes('koaj') && emp.work_permission === 'quest_only') return false
-      if (store.name.toLowerCase().includes('quest') && emp.work_permission === 'koaj_only') return false
-
       return true
     })
   }
@@ -122,7 +119,25 @@ export default function SchedulePage() {
   }
 
   function handleAddShift(date: Date, storeId: string) {
-    setSelectedSlot({ date: format(date, 'yyyy-MM-dd'), storeId })
+    const store = getStoreById(storeId)
+    const isWeekend = date.getDay() === 0 || date.getDay() === 6
+    const schedule = isWeekend ? store?.schedule_weekend : store?.schedule_weekday
+
+    // Parsear horario de la tienda (ej: "9:00-19:00" → start: "09:00", end: "19:00")
+    let startTime = "09:00"
+    let endTime = "19:00"
+    if (schedule) {
+      const [start, end] = schedule.split('-').map(s => s.trim())
+      // Asegurar formato HH:00
+      startTime = start.includes(':') ? start.padStart(2, '0') : start + ':00'
+      endTime = end.includes(':') ? end.padStart(2, '0') : end + ':00'
+    }
+
+    setSelectedSlot({
+      date: format(date, 'yyyy-MM-dd'),
+      storeId,
+      storeSchedule: { start: startTime, end: endTime }
+    })
     setIsAddShiftOpen(true)
   }
 
@@ -189,22 +204,22 @@ export default function SchedulePage() {
     try {
       toast.info('Generando imagen...')
 
-      // Scroll to top to ensure full capture
-      window.scrollTo(0, 0)
+      // Ocultar header temporalmente para capturar solo la grilla
+      const header = document.querySelector('header')
+      const main = document.querySelector('main')
+      if (header) header.style.display = 'none'
+      if (main) main.style.padding = '0'
 
-      // Wait a moment for any animations to settle
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise(resolve => setTimeout(resolve, 50))
 
       const canvas = await html2canvas(element, {
-        scale: window.devicePixelRatio || 2,
+        scale: 2,
         backgroundColor: '#ffffff',
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,
         logging: false,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
         scrollX: 0,
-        scrollY: 0,
+        scrollY: -window.scrollY,
         ignoreElements: (el) => {
           if (el.classList?.contains('no-print')) return true
           if (el.classList?.contains('add-shift-btn')) return true
@@ -212,12 +227,16 @@ export default function SchedulePage() {
         },
       })
 
+      // Restaurar layout
+      if (header) header.style.display = ''
+      if (main) main.style.padding = ''
+
       const dataUrl = canvas.toDataURL('image/png')
-      const blob = await (await fetch(dataUrl)).blob()
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
 
       // Try to use Web Share API on mobile
       if (navigator.share && navigator.canShare) {
+        const blob = await (await fetch(dataUrl)).blob()
         const file = new File([blob], filename, { type: 'image/png' })
         const shareData = { files: [file], title: 'Horario Proección y Moda JLS' }
 
@@ -416,10 +435,10 @@ export default function SchedulePage() {
             <div className="space-y-2">
               <Label htmlFor="employee_id">Empleado</Label>
               <Select name="employee_id" required>
-                <SelectTrigger>
+                <SelectTrigger className="min-w-[200px]">
                   <SelectValue placeholder="Selecciona un empleado" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="min-w-[200px]">
                   {selectedSlot && getActiveEmployeesForStore(selectedSlot.storeId)
                     .filter(emp => {
                       // Filtrar empleados que ya tienen turno ese día
@@ -442,7 +461,7 @@ export default function SchedulePage() {
                   name="start_time"
                   type="time"
                   required
-                  defaultValue="09:00"
+                  defaultValue={selectedSlot?.storeSchedule?.start || "09:00"}
                 />
               </div>
               <div className="space-y-2">
@@ -452,7 +471,7 @@ export default function SchedulePage() {
                   name="end_time"
                   type="time"
                   required
-                  defaultValue="19:00"
+                  defaultValue={selectedSlot?.storeSchedule?.end || "19:00"}
                 />
               </div>
             </div>
