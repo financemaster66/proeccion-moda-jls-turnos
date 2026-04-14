@@ -174,11 +174,11 @@ export default function StoresPage() {
               </CardHeader>
               <CardContent className="pt-4 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Horario Lunes-Vie:</span>
+                  <span className="text-slate-500">Horario Lunes-Sab:</span>
                   <span className="font-medium">{store.schedule_weekday}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Horario Fin de Semana:</span>
+                  <span className="text-slate-500">Horario Dom-Fest:</span>
                   <span className="font-medium">{store.schedule_weekend}</span>
                 </div>
                 <div className="flex justify-between">
@@ -252,7 +252,7 @@ function StoreForm({
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="schedule_weekday">Horario Lunes-Vie</Label>
+          <Label htmlFor="schedule_weekday">Horario Lun-Sab</Label>
           <Input
             id="schedule_weekday"
             name="schedule_weekday"
@@ -262,7 +262,7 @@ function StoreForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="schedule_weekend">Horario Fin de Semana</Label>
+          <Label htmlFor="schedule_weekend">Horario Dom-Fest</Label>
           <Input
             id="schedule_weekend"
             name="schedule_weekend"

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { getStores } from '@/app/actions/stores'
 import { getEmployees } from '@/app/actions/employees'
 import { getShifts, createShift, deleteShift, runAutoSchedule } from '@/app/actions/schedule'
@@ -10,10 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { ChevronLeft, ChevronRight, Calendar, Plus, Play, Download, Sparkles } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar, Plus, Play, Download, Sparkles, Trash2 } from 'lucide-react'
 import type { Store, Employee, Shift } from '@/types/schedule'
 import { DIAS_SEMANA_CORTO, CONFIGURACION_TURNOS, FOOTER_ATTRIBUTION } from '@/lib/constants'
-import { format, addMonths, startOfMonth, addDays, isSameDay, parseISO } from 'date-fns'
+import { format, addMonths, startOfMonth, addDays, isSameDay, parseISO, getDaysInMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
 import html2canvas from 'html2canvas'
@@ -27,10 +27,14 @@ export default function SchedulePage() {
   const [isAddShiftOpen, setIsAddShiftOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string } | null>(null)
   const [isAutoScheduling, setIsAutoScheduling] = useState(false)
+  const [currentRange, setCurrentRange] = useState<'first' | 'second'>('first')
 
-  // Vista de 15 días comenzando del día 1 del mes actual
-  const startDate = startOfMonth(currentDate)
-  const dates = Array.from({ length: 15 }, (_, i) => addDays(startDate, i))
+  // Vista de 15 días: primer rango (1-15) o segundo rango (16-30/31)
+  const monthStart = startOfMonth(currentDate)
+  const daysInMonth = getDaysInMonth(currentDate)
+  const rangeStart = currentRange === 'first' ? monthStart : addDays(monthStart, 15)
+  const rangeEndDay = currentRange === 'first' ? 14 : Math.min(daysInMonth - 1, 29)
+  const dates = Array.from({ length: currentRange === 'first' ? 15 : Math.min(15, daysInMonth - 15) }, (_, i) => addDays(rangeStart, i))
 
   useEffect(() => {
     loadData()
@@ -51,23 +55,33 @@ export default function SchedulePage() {
     if (stores.length > 0) {
       loadShifts()
     }
-  }, [startDate, stores])
+  }, [rangeStart, stores, currentRange, currentDate])
 
   async function loadShifts() {
-    const endDate = addDays(startDate, 14)
+    const endDate = addDays(rangeStart, dates.length - 1)
     const shiftsData = await getShifts(
-      format(startDate, 'yyyy-MM-dd'),
+      format(rangeStart, 'yyyy-MM-dd'),
       format(endDate, 'yyyy-MM-dd')
     )
     setShifts(shiftsData)
   }
 
-  function handlePrevMonth() {
-    setCurrentDate(addMonths(currentDate, -1))
+  function handlePrevRange() {
+    if (currentRange === 'second') {
+      setCurrentRange('first')
+    } else {
+      setCurrentDate(addMonths(currentDate, -1))
+      setCurrentRange('second')
+    }
   }
 
-  function handleNextMonth() {
-    setCurrentDate(addMonths(currentDate, 1))
+  function handleNextRange() {
+    if (currentRange === 'first' && daysInMonth > 15) {
+      setCurrentRange('second')
+    } else {
+      setCurrentDate(addMonths(currentDate, 1))
+      setCurrentRange('first')
+    }
   }
 
   function getShiftsForDateAndStore(date: Date, storeId: string) {
@@ -75,6 +89,28 @@ export default function SchedulePage() {
       isSameDay(parseISO(shift.shift_date), date) &&
       shift.store_id === storeId
     )
+  }
+
+  function getAssignedEmployeeIdsForDate(date: Date): string[] {
+    const dateStr = format(date, 'yyyy-MM-dd')
+    return shifts
+      .filter(shift => shift.shift_date === dateStr)
+      .map(shift => shift.employee_id)
+  }
+
+  function getActiveEmployeesForStore(storeId: string): Employee[] {
+    const store = getStoreById(storeId)
+    if (!store) return []
+
+    return employees.filter(emp => {
+      if (!emp.is_active) return false
+
+      // Filter by work permission
+      if (store.name.toLowerCase().includes('koaj') && emp.work_permission === 'quest_only') return false
+      if (store.name.toLowerCase().includes('quest') && emp.work_permission === 'koaj_only') return false
+
+      return true
+    })
   }
 
   function getEmployeeById(id: string) {
@@ -124,10 +160,10 @@ export default function SchedulePage() {
 
   async function handleAutoSchedule() {
     setIsAutoScheduling(true)
-    const endDate = addDays(startDate, 14)
+    const endDate = addDays(rangeStart, dates.length - 1)
 
     const result = await runAutoSchedule(
-      format(startDate, 'yyyy-MM-dd'),
+      format(rangeStart, 'yyyy-MM-dd'),
       format(endDate, 'yyyy-MM-dd')
     )
 
@@ -144,28 +180,65 @@ export default function SchedulePage() {
     setIsAutoScheduling(false)
   }
 
+  const exportRef = useRef<HTMLDivElement>(null)
+
   async function handleExportImage() {
-    const element = document.getElementById('schedule-grid')
+    const element = exportRef.current
     if (!element) return
 
     try {
+      toast.info('Generando imagen...')
+
+      // Scroll to top to ensure full capture
+      window.scrollTo(0, 0)
+
+      // Wait a moment for any animations to settle
+      await new Promise(resolve => setTimeout(resolve, 100))
+
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: window.devicePixelRatio || 2,
         backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
+        scrollX: 0,
+        scrollY: 0,
         ignoreElements: (el) => {
-          // Ignorar botones y elementos interactivos
           if (el.classList?.contains('no-print')) return true
+          if (el.classList?.contains('add-shift-btn')) return true
           return false
         },
       })
 
+      const dataUrl = canvas.toDataURL('image/png')
+      const blob = await (await fetch(dataUrl)).blob()
+      const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
+
+      // Try to use Web Share API on mobile
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], filename, { type: 'image/png' })
+        const shareData = { files: [file], title: 'Horario Proección y Moda JLS' }
+
+        if (navigator.canShare(shareData)) {
+          await navigator.share(shareData)
+          toast.success('Imagen compartida exitosamente')
+          return
+        }
+      }
+
+      // Fallback: download
       const link = document.createElement('a')
-      link.download = `horario-${format(startDate, 'yyyy-MM-dd')}.png`
-      link.href = canvas.toDataURL('image/png')
+      link.download = filename
+      link.href = dataUrl
+      document.body.appendChild(link)
       link.click()
+      document.body.removeChild(link)
 
       toast.success('Horario exportado exitosamente')
-    } catch {
+    } catch (err) {
+      console.error('Export error:', err)
       toast.error('Error al exportar horario')
     }
   }
@@ -198,21 +271,21 @@ export default function SchedulePage() {
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">Horarios</h1>
                 <p className="text-sm text-slate-500">
-                  {format(startDate, "MMMM yyyy", { locale: es })} - Primeros 15 días
+                  {format(rangeStart, "d 'de' MMMM yyyy", { locale: es })} - {format(addDays(rangeStart, dates.length - 1), "d 'de' MMMM yyyy", { locale: es })}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 no-print flex-wrap">
               <div className="flex items-center gap-1">
-                <Button variant="outline" size="sm" onClick={handlePrevMonth}>
+                <Button variant="outline" size="sm" onClick={handlePrevRange}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>
+                <Button variant="outline" size="sm" onClick={() => { setCurrentDate(new Date()); setCurrentRange('first') }}>
                   <Calendar className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Hoy</span>
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleNextMonth}>
+                <Button variant="outline" size="sm" onClick={handleNextRange}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -241,7 +314,7 @@ export default function SchedulePage() {
 
       {/* Schedule Grid */}
       <main className="container mx-auto p-4">
-        <div id="schedule-grid" className="space-y-4">
+        <div id="schedule-grid" ref={exportRef} className="space-y-4">
           {stores.map((store) => (
             <Card key={store.id}>
               <CardContent className="p-4">
@@ -250,7 +323,7 @@ export default function SchedulePage() {
                     <div>
                       <h2 className="font-bold text-lg">{store.display_name}</h2>
                       <p className="text-sm opacity-80">
-                        {store.schedule_weekday} (Lun-Vie) | {store.schedule_weekend} (Sáb-Dom)
+                        {store.schedule_weekday} (Lun-Sab) | {store.schedule_weekend} (Dom-Fest)
                         {store.lunch_minutes === 60 ? ' | 1h almuerzo' : ' | 30min almuerzo'}
                       </p>
                     </div>
@@ -269,54 +342,52 @@ export default function SchedulePage() {
                       return (
                         <div
                           key={date.toISOString()}
-                          className={`border rounded-md p-2 min-h-[120px] w-32 flex-shrink-0 ${
+                          className={`border rounded-md p-2 min-h-[140px] w-36 flex-shrink-0 ${
                             isWeekend ? 'bg-slate-50' : 'bg-white'
                           }`}
                         >
                           <div className="text-center mb-2 pb-2 border-b">
-                          <p className="text-xs font-medium text-slate-500">
-                            {DIAS_SEMANA_CORTO[format(date, 'EEEE', { locale: es }) as keyof typeof DIAS_SEMANA_CORTO]}
-                          </p>
-                          <p className="text-sm font-bold">{format(date, 'd')}</p>
-                        </div>
+                            <p className="text-xs font-bold text-slate-700">
+                              {format(date, 'EEEE', { locale: es })}
+                            </p>
+                            <p className="text-sm font-bold">{format(date, 'd')}</p>
+                          </div>
 
-                        <div className="space-y-1">
-                          {dayShifts.map((shift) => {
-                            const employee = getEmployeeById(shift.employee_id)
-                            if (!employee) return null
+                          <div className="space-y-1">
+                            {dayShifts.map((shift) => {
+                              const employee = getEmployeeById(shift.employee_id)
+                              if (!employee) return null
 
-                            return (
-                              <div
-                                key={shift.id}
-                                className="text-xs p-1.5 rounded bg-blue-100 border border-blue-200 flex items-center justify-between group"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium truncate">{employee.full_name}</p>
-                                  <p className="text-slate-500 text-[10px]">
-                                    {shift.start_time} - {shift.end_time}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteShift(shift.id)}
-                                  className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 no-print ml-1"
+                              return (
+                                <div
+                                  key={shift.id}
+                                  className="text-xs p-2 rounded bg-blue-100 border border-blue-200 flex items-center justify-between group"
                                 >
-                                  ×
-                                </button>
-                              </div>
-                            )
-                          })}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-medium truncate">{employee.full_name}</p>
+                                    <p className="text-slate-500 text-[10px]">
+                                      {shift.start_time} - {shift.end_time}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleDeleteShift(shift.id)}
+                                    className="text-red-500 hover:text-red-700 hover:bg-red-100 rounded p-1 no-print ml-1 transition-colors"
+                                    title="Eliminar turno"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )
+                            })}
 
-                          {/* Empty slots */}
-                          {Array.from({ length: Math.max(0, store.slots_required - dayShifts.length) }).map((_, i) => (
+                            {/* Botón siempre visible para añadir manualmente */}
                             <button
-                              key={i}
                               onClick={() => handleAddShift(date, store.id)}
-                              className="w-full text-xs p-1.5 rounded border-2 border-dashed border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-500 transition-colors no-print"
+                              className="w-full text-xs p-2 rounded border-2 border-dashed border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-500 transition-colors no-print add-shift-btn"
                             >
                               <Plus className="h-3 w-3 mx-auto" />
                             </button>
-                          ))}
-                        </div>
+                          </div>
                         </div>
                       )
                     })}
@@ -349,8 +420,12 @@ export default function SchedulePage() {
                   <SelectValue placeholder="Selecciona un empleado" />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees
-                    .filter(e => e.is_active)
+                  {selectedSlot && getActiveEmployeesForStore(selectedSlot.storeId)
+                    .filter(emp => {
+                      // Filtrar empleados que ya tienen turno ese día
+                      const assignedIds = getAssignedEmployeeIdsForDate(parseISO(selectedSlot.date))
+                      return !assignedIds.includes(emp.id)
+                    })
                     .map((employee) => (
                       <SelectItem key={employee.id} value={employee.id}>
                         {employee.full_name}
