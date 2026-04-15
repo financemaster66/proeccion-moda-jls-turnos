@@ -182,11 +182,32 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       .gte('shift_date', startDate)
       .lte('shift_date', endDate)
 
+    // Fetch coworker history from last 30 days
+    const thirtyDaysAgo = new Date(startDate)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const { data: coworkerHistory } = await supabase
+      .from('coworker_history')
+      .select('*')
+      .gte('shift_date', thirtyDaysAgo.toISOString().split('T')[0])
+
     if (!employees || !stores) {
       return { success: false, error: 'No hay empleados o tiendas disponibles' }
     }
 
-    const newShifts = []
+    const newShifts: Array<{
+      store_id: string
+      employee_id: string
+      shift_date: string
+      start_time: string
+      end_time: string
+      is_auto_scheduled: boolean
+    }> = []
+    const coworkerPairs: Array<{
+      shift_date: string
+      store_id: string
+      employee_1: string
+      employee_2: string
+    }> = []
     const errors: string[] = []
     const warnings: string[] = []
 
@@ -199,32 +220,78 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       currentDate.setDate(currentDate.getDate() + 1)
     }
 
+    // Build map of last paired date for each employee pair
+    const lastPairedDate = new Map<string, string>()
+    coworkerHistory?.forEach(record => {
+      const pairKey = [record.employee_1, record.employee_2].sort().join('-')
+      if (!lastPairedDate.has(pairKey) || record.shift_date > lastPairedDate.get(pairKey)!) {
+        lastPairedDate.set(pairKey, record.shift_date)
+      }
+    })
+
+    // Track employee -> last store assignment for rotation
+    const employeeLastStore = new Map<string, string>()
+
     // For each date
     for (const date of dates) {
       const dayOfWeek = new Date(date).getDay()
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6 // Sunday or Saturday
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
 
       // Track which employees are already scheduled this day
       const scheduledToday = new Set<string>()
-      const scheduledShifts = existingShifts?.filter(s => s.shift_date === date) || []
-      scheduledShifts.forEach(s => scheduledToday.add(s.employee_id))
+
+      // Separate employees by type
+      const completeEmployees = employees.filter(emp =>
+        emp.employee_type === 'complete' && emp.is_active
+      )
+      const weekendEmployees = employees.filter(emp =>
+        (emp.employee_type === 'weekends_only' || emp.employee_type === 'weekends_half') &&
+        emp.is_active
+      )
+      const onCallEmployees = employees.filter(emp =>
+        emp.employee_type === 'on_call' && emp.is_active
+      )
+      const hourlyEmployees = employees.filter(emp =>
+        emp.employee_type === 'hourly' && emp.is_active
+      )
+
+      // Randomize employees for variety (Fisher-Yates shuffle)
+      function shuffleArray<T>(array: T[]) {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1))
+          ;[array[i], array[j]] = [array[j], array[i]]
+        }
+        return array
+      }
+
+      // WEEKDAYS: Shuffle complete employees
+      if (!isWeekend) {
+        shuffleArray(completeEmployees)
+      }
+
+      // WEEKENDS: Shuffle weekend employees first
+      if (isWeekend) {
+        shuffleArray(weekendEmployees)
+      }
 
       // For each store
       for (const store of stores) {
-        // Determine required slots
         const requiredSlots = store.slots_required || 2
+        const assigned: string[] = []
 
-        // Find eligible employees for this store
-        let eligibleEmployees = employees.filter(emp => {
+        // Build candidate pool based on day type
+        let candidatePool = isWeekend
+          ? [...weekendEmployees, ...completeEmployees, ...onCallEmployees, ...hourlyEmployees]
+          : [...completeEmployees, ...hourlyEmployees, ...onCallEmployees]
+
+        // Filter eligible candidates
+        let candidates = candidatePool.filter(emp => {
           // Check work permission
           if (store.name.startsWith('quest') && emp.work_permission === 'koaj_only') return false
           if (!store.name.startsWith('quest') && emp.work_permission === 'quest_only') return false
 
           // Check if already scheduled today
           if (scheduledToday.has(emp.id)) return false
-
-          // Check employee type constraints
-          if (emp.employee_type === 'weekends_only' && !isWeekend) return false
 
           // Check on_call availability
           if (emp.employee_type === 'on_call') {
@@ -235,35 +302,66 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           return true
         })
 
-        // Sort by fewest shifts this week (fair distribution)
-        const employeeShiftCounts = new Map<string, number>()
-        scheduledShifts.forEach(s => {
-          employeeShiftCounts.set(s.employee_id, (employeeShiftCounts.get(s.employee_id) || 0) + 1)
-        })
+        // Sort candidates by:
+        // 1. Days since last paired with any already-assigned employee (higher = better)
+        // 2. Store rotation (prefer different store than last time)
+        // 3. Random tiebreaker
+        candidates.sort((a, b) => {
+          // Calculate minimum days since last pairing with any assigned coworker
+          const getMinDaysSincePairing = (emp: typeof employees[0]) => {
+            if (assigned.length === 0) return Infinity
+            let minDays = Infinity
+            for (const assignedId of assigned) {
+              const pairKey = [emp.id, assignedId].sort().join('-')
+              const lastDate = lastPairedDate.get(pairKey)
+              if (lastDate) {
+                const days = Math.floor(
+                  (new Date(date).getTime() - new Date(lastDate).getTime()) / (1000 * 60 * 60 * 24)
+                )
+                minDays = Math.min(minDays, days)
+              }
+            }
+            return minDays
+          }
 
-        eligibleEmployees.sort((a, b) => {
-          const countA = employeeShiftCounts.get(a.id) || 0
-          const countB = employeeShiftCounts.get(b.id) || 0
-          return countA - countB
+          const aDays = getMinDaysSincePairing(a)
+          const bDays = getMinDaysSincePairing(b)
+
+          // Prefer candidate who hasn't worked with assigned coworkers for longer
+          if (aDays !== bDays) {
+            return bDays - aDays
+          }
+
+          // Tiebreaker: prefer different store than last assignment
+          const aStoreDiff = employeeLastStore.has(a.id) && employeeLastStore.get(a.id) !== store.id ? 1 : 0
+          const bStoreDiff = employeeLastStore.has(b.id) && employeeLastStore.get(b.id) !== store.id ? 1 : 0
+          if (aStoreDiff !== bStoreDiff) {
+            return bStoreDiff - aStoreDiff
+          }
+
+          // Final tiebreaker: random
+          return Math.random() - 0.5
         })
 
         // Assign employees to slots
-        for (let i = 0; i < requiredSlots && eligibleEmployees.length > 0; i++) {
-          const employee = eligibleEmployees.shift()
+        for (let i = 0; i < requiredSlots && candidates.length > 0; i++) {
+          const employee = candidates.shift()!
           if (!employee) continue
+
+          assigned.push(employee.id)
+          scheduledToday.add(employee.id)
+          employeeLastStore.set(employee.id, store.id)
 
           // Parse store schedule
           const schedule = isWeekend ? store.schedule_weekend : store.schedule_weekday
           const [startStr, endStr] = schedule.split('-')
 
-          // Adjust for lunch break (staggered shifts)
+          // Staggered shifts for lunch coverage
           let startTime = startStr
-          let endTime = endStr
 
           if (i === 1 && requiredSlots === 2) {
-            // Second shift starts later to cover lunch
             const startHour = parseInt(startStr.split(':')[0])
-            startTime = `${startHour + 4}:00` // Start 4 hours later
+            startTime = `${startHour + 4}:00`
           }
 
           newShifts.push({
@@ -271,15 +369,31 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
             employee_id: employee.id,
             shift_date: date,
             start_time: startTime,
-            end_time: endTime,
+            end_time: endStr,
             is_auto_scheduled: true,
           })
-
-          scheduledToday.add(employee.id)
         }
 
-        if (eligibleEmployees.length === 0 && requiredSlots > (scheduledShifts.filter(s => s.store_id === store.id && s.shift_date === date).length || 0)) {
-          warnings.push(`No hay suficientes empleados disponibles para ${store.display_name} el ${date}`)
+        // Register coworker pairs for this store/date
+        if (assigned.length >= 2) {
+          for (let i = 0; i < assigned.length; i++) {
+            for (let j = i + 1; j < assigned.length; j++) {
+              const [emp1, emp2] = [assigned[i], assigned[j]].sort()
+              coworkerPairs.push({
+                shift_date: date,
+                store_id: store.id,
+                employee_1: emp1,
+                employee_2: emp2,
+              })
+            }
+          }
+        }
+
+        // Warning if couldn't fill all slots (acceptable - manager can fill manually)
+        if (assigned.length < requiredSlots) {
+          warnings.push(
+            `${store.display_name} el ${date}: ${assigned.length}/${requiredSlots} turnos asignados (espacios vacíos disponibles)`
+          )
         }
       }
     }
@@ -293,6 +407,18 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       if (error) {
         console.error('Error inserting auto-scheduled shifts:', error)
         return { success: false, error: error.message }
+      }
+    }
+
+    // Insert coworker history records
+    if (coworkerPairs.length > 0) {
+      const { error } = await supabase
+        .from('coworker_history')
+        .insert(coworkerPairs)
+
+      if (error) {
+        console.error('Error inserting coworker history:', error)
+        // Don't fail the whole operation, just log
       }
     }
 
