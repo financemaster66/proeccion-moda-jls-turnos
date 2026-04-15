@@ -23,11 +23,15 @@ export default function AppSidebar() {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       <div className="mb-8 pt-4">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center mb-3">
-          <span className="text-xl font-bold text-white">PM</span>
+        <div className="w-16 h-16 rounded-lg overflow-hidden shadow-md bg-white mb-3 mx-auto">
+          <img
+            src="/images/logo.png"
+            alt="Proección y Moda JLS"
+            className="w-full h-full object-contain p-1"
+          />
         </div>
-        <h1 className="font-bold text-slate-800">Proección y Moda JLS</h1>
-        <p className="text-xs text-slate-500">Sistema de Turnos</p>
+        <h1 className="font-bold text-slate-800 text-center">Proección y Moda JLS</h1>
+        <p className="text-xs text-slate-500 text-center">Sistema de Turnos</p>
       </div>
 
       <nav className="flex-1 space-y-1">
@@ -75,9 +79,13 @@ export default function AppSidebar() {
 
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b z-40 flex items-center justify-between px-4">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-            <span className="text-sm font-bold text-white">PM</span>
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-lg overflow-hidden shadow-sm bg-white">
+            <img
+              src="/images/logo.png"
+              alt="Proección y Moda JLS"
+              className="w-full h-full object-contain p-0.5"
+            />
           </div>
           <div>
             <h1 className="font-bold text-slate-800 text-sm">Proección y Moda JLS</h1>

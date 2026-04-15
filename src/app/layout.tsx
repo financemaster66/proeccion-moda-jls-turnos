@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Proección y Moda JLS - Turnos',
   description: 'Sistema de gestión de turnos para Proección y Moda JLS',
+  icons: {
+    icon: '/seo/favicon.ico',
+  },
 }
 
 export const viewport: Viewport = {

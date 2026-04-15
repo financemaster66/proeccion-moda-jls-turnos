@@ -35,8 +35,12 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <Card className="w-full max-w-md shadow-2xl">
         <CardHeader className="space-y-3 text-center">
-          <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-            <span className="text-3xl font-bold text-white">PM</span>
+          <div className="mx-auto w-32 h-32 rounded-lg overflow-hidden shadow-lg bg-white">
+            <img
+              src="/images/logo.png"
+              alt="Proección y Moda JLS"
+              className="w-full h-full object-contain p-2"
+            />
           </div>
           <CardTitle className="text-2xl font-bold text-slate-800">
             Proección y Moda JLS
@@ -46,7 +50,7 @@ export default function LoginPage() {
           </CardDescription>
         </CardHeader>
         <form action={handleSubmit}>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 pt-4">
             {error && (
               <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
                 {error}
@@ -92,10 +96,6 @@ export default function LoginPage() {
                 'Iniciar Sesión'
               )}
             </Button>
-            <p className="text-xs text-slate-500 text-center">
-              Usa <strong>admin/admin123</strong> (desarrollador) o{' '}
-              <strong>gerente/gerente123</strong> (gerente)
-            </p>
           </CardFooter>
         </form>
         <div className="pb-6 px-6">
