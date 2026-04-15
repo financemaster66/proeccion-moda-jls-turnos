@@ -341,7 +341,6 @@ export default function SchedulePage() {
                       <h2 className="font-bold text-lg">{store.display_name}</h2>
                       <p className="text-sm opacity-80">
                         {store.schedule_weekday} (Lun-Sab) | {store.schedule_weekend} (Dom-Fest)
-                        {store.lunch_minutes === 60 ? ' | 1h almuerzo' : ' | 30min almuerzo'}
                       </p>
                     </div>
                     <span className="text-sm font-medium">

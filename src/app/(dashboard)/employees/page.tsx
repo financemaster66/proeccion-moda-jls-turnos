@@ -99,6 +99,16 @@ export default function EmployeesPage() {
       .toUpperCase()
   }
 
+  // Calcular estadísticas
+  const stats = {
+    total: employees.length,
+    complete: employees.filter(e => e.employee_type === 'complete').length,
+    weekends_only: employees.filter(e => e.employee_type === 'weekends_only').length,
+    weekends_half: employees.filter(e => e.employee_type === 'weekends_half').length,
+    hourly: employees.filter(e => e.employee_type === 'hourly').length,
+    on_call: employees.filter(e => e.employee_type === 'on_call').length,
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex justify-between items-center">
@@ -120,6 +130,46 @@ export default function EmployeesPage() {
             <EmployeeForm onSubmit={handleAdd} />
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Estadísticas */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Total</p>
+            <p className="text-2xl font-bold text-slate-800">{stats.total}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-purple-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Completo</p>
+            <p className="text-xl font-bold text-purple-600">{stats.complete}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Solo Fines</p>
+            <p className="text-xl font-bold text-green-600">{stats.weekends_only}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-orange-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Medio Tiempo</p>
+            <p className="text-xl font-bold text-orange-600">{stats.weekends_half}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-teal-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Por Horas</p>
+            <p className="text-xl font-bold text-teal-600">{stats.hourly}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-4">
+            <p className="text-xs text-slate-500 font-medium">Eventual</p>
+            <p className="text-xl font-bold text-red-600">{stats.on_call}</p>
+          </CardContent>
+        </Card>
       </div>
 
       {isLoading ? (
