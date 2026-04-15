@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { getStores } from '@/app/actions/stores'
 import { getEmployees } from '@/app/actions/employees'
-import { getShifts, createShift, deleteShift, runAutoSchedule } from '@/app/actions/schedule'
+import { getShifts, createShift, deleteShift, runAutoSchedule, deleteAllShifts } from '@/app/actions/schedule'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,6 +16,7 @@ import { DIAS_SEMANA_CORTO, CONFIGURACION_TURNOS, FOOTER_ATTRIBUTION } from '@/l
 import { format, addMonths, startOfMonth, addDays, isSameDay, parseISO, getDaysInMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
+import domtoimage from 'dom-to-image'
 
 export default function SchedulePage() {
   const [currentDate, setCurrentDate] = useState(new Date())
@@ -199,134 +200,27 @@ export default function SchedulePage() {
   }
 
   async function handleExportImage() {
+    const element = document.getElementById('schedule-grid')
+    if (!element) return
+
     try {
       toast.info('Generando imagen...')
 
-      // Configuración
-      const COL = 140      // ancho por día
-      const ROW = 32       // alto por día
-      const GAP = 8
-      const STORE_HEADER = 70
-      const PADDING = 20
-      const TITLE_HEIGHT = 50
+      // Ocultar botones temporalmente
+      const buttons = document.querySelectorAll('.no-print')
+      buttons.forEach(btn => btn.classList.add('hidden'))
 
-      // Calcular tamaño del canvas
-      const totalWidth = PADDING * 2 + dates.length * COL + (dates.length - 1) * GAP
-      const totalHeight = PADDING * 2 + TITLE_HEIGHT + stores.length * (STORE_HEADER + ROW + GAP)
+      await new Promise(resolve => setTimeout(resolve, 100))
 
-      // Crear canvas
-      const canvas = document.createElement('canvas')
-      canvas.width = totalWidth * 2  // scale 2x
-      canvas.height = totalHeight * 2
-      const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('No se pudo crear el canvas')
-
-      ctx.scale(2, 2)
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, totalWidth, totalHeight)
-
-      // Colores de tiendas
-      const coloresBg: Record<string, string> = {
-        blue: '#dbeafe', green: '#dcfce7', purple: '#f3e8ff', orange: '#ffedd5',
-      }
-      const coloresBorder: Record<string, string> = {
-        blue: '#3b82f6', green: '#22c55e', purple: '#a855f7', orange: '#f97316',
-      }
-
-      let y = PADDING
-
-      // Título
-      ctx.fillStyle = '#0f172a'
-      ctx.font = 'bold 18px system-ui, sans-serif'
-      ctx.fillText(`Horarios - ${format(rangeStart, "d 'de' MMMM yyyy", { locale: es })}`, PADDING, y + 20)
-      y += TITLE_HEIGHT
-
-      stores.forEach((store, storeIndex) => {
-        // Fondo de tarjeta
-        ctx.fillStyle = coloresBg[store.color_theme] || '#f1f5f9'
-        ctx.fillRect(PADDING, y, totalWidth - PADDING * 2, STORE_HEADER + ROW + GAP)
-
-        // Borde izquierdo
-        ctx.fillStyle = coloresBorder[store.color_theme] || '#64748b'
-        ctx.fillRect(PADDING, y, 4, STORE_HEADER + ROW + GAP)
-
-        // Nombre de tienda
-        ctx.fillStyle = '#1e293b'
-        ctx.font = 'bold 14px system-ui, sans-serif'
-        ctx.fillText(store.display_name, PADDING + 12, y + 24)
-
-        // Horarios
-        ctx.fillStyle = '#64748b'
-        ctx.font = '11px system-ui, sans-serif'
-        ctx.fillText(`${store.schedule_weekday} (Lun-Sab) | ${store.schedule_weekend} (Dom-Fest)`, PADDING + 12, y + 42)
-
-        // Slots requeridos
-        ctx.fillStyle = '#475569'
-        ctx.font = 'bold 11px system-ui, sans-serif'
-        ctx.fillText(`${store.slots_required} turnos/día`, totalWidth - PADDING - 80, y + 24)
-
-        y += STORE_HEADER
-
-        // Días
-        let x = PADDING
-        dates.forEach((date) => {
-          const dayShifts = getShiftsForDateAndStore(date, store.id)
-          const isWeekend = date.getDay() === 0 || date.getDay() === 6
-          const dayName = format(date, 'EEEE', { locale: es })
-          const dayNum = format(date, 'd')
-
-          // Fondo del día
-          ctx.fillStyle = isWeekend ? '#f8fafc' : '#ffffff'
-          ctx.fillRect(x, y, COL, ROW)
-
-          // Borde del día
-          ctx.strokeStyle = '#e2e8f0'
-          ctx.strokeRect(x, y, COL, ROW)
-
-          // Nombre del día
-          ctx.fillStyle = '#475569'
-          ctx.font = 'bold 10px system-ui, sans-serif'
-          ctx.fillText(dayName.charAt(0).toUpperCase() + dayName.slice(1), x + 6, y + 14)
-
-          // Número del día
-          ctx.fillStyle = '#0f172a'
-          ctx.font = 'bold 12px system-ui, sans-serif'
-          ctx.fillText(dayNum, x + 6, y + 28)
-
-          // Turnos (máximo 3 visibles)
-          dayShifts.slice(0, 3).forEach((shift, idx) => {
-            const employee = getEmployeeById(shift.employee_id)
-            if (employee) {
-              const shiftY = y + 38 + idx * 18
-              // Fondo turno
-              ctx.fillStyle = '#dbeafe'
-              ctx.fillRect(x + 4, shiftY - 10, COL - 8, 16)
-              ctx.strokeStyle = '#bfdbfe'
-              ctx.strokeRect(x + 4, shiftY - 10, COL - 8, 16)
-
-              // Nombre (truncado)
-              ctx.fillStyle = '#1e40af'
-              ctx.font = 'bold 9px system-ui, sans-serif'
-              const displayName = employee.full_name.length > 14
-                ? employee.full_name.substring(0, 12) + '...'
-                : employee.full_name
-              ctx.fillText(displayName, x + 8, shiftY)
-
-              // Hora
-              ctx.fillStyle = '#64748b'
-              ctx.font = '8px system-ui, sans-serif'
-              ctx.fillText(`${shift.start_time}-${shift.end_time}`, x + 8, shiftY + 8)
-            }
-          })
-
-          x += COL + GAP
-        })
-
-        y += ROW + GAP
+      // Usar dom-to-image que maneja mejor CSS moderno
+      const dataUrl = await domtoimage.toPng(element, {
+        bgcolor: '#ffffff',
+        quality: 1.0,
       })
 
-      // Descargar imagen
-      const dataUrl = canvas.toDataURL('image/png')
+      // Restaurar botones
+      buttons.forEach(btn => btn.classList.remove('hidden'))
+
       const filename = `horario-${format(rangeStart, 'yyyy-MM-dd')}.png`
 
       const link = document.createElement('a')
@@ -337,7 +231,27 @@ export default function SchedulePage() {
       toast.success('Horario exportado exitosamente')
     } catch (err) {
       console.error('Export error:', err)
+      // Restaurar botones en caso de error
+      const buttons = document.querySelectorAll('.no-print')
+      buttons.forEach(btn => btn.classList.remove('hidden'))
       toast.error('Error al exportar: ' + (err instanceof Error ? err.message : String(err)))
+    }
+  }
+
+  async function handleDeleteAll() {
+    if (!confirm('¿Estás seguro de eliminar TODOS los turnos de esta quincena? Esta acción no se puede deshacer.')) return
+
+    const endDate = addDays(rangeStart, dates.length - 1)
+    const result = await deleteAllShifts(
+      format(rangeStart, 'yyyy-MM-dd'),
+      format(endDate, 'yyyy-MM-dd')
+    )
+
+    if (result.success) {
+      toast.success('Todos los turnos fueron eliminados')
+      loadShifts()
+    } else {
+      toast.error(result.error || 'Error al eliminar turnos')
     }
   }
 
@@ -405,6 +319,11 @@ export default function SchedulePage() {
                 <Download className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Exportar</span>
               </Button>
+
+              <Button variant="outline" size="sm" onClick={handleDeleteAll} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                <Trash2 className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Eliminar todo</span>
+              </Button>
             </div>
           </div>
         </div>
@@ -412,7 +331,7 @@ export default function SchedulePage() {
 
       {/* Schedule Grid */}
       <main className="container mx-auto p-4">
-        <div id="schedule-grid" ref={exportRef} className="space-y-4">
+        <div id="schedule-grid" className="space-y-4">
           {stores.map((store) => (
             <Card key={store.id} className="store-card">
               <CardContent className="p-4">

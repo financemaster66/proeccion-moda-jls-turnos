@@ -142,6 +142,24 @@ export async function deleteShiftsByDateAndStore(date: string, storeId: string) 
   return { success: true }
 }
 
+export async function deleteAllShifts(startDate: string, endDate: string) {
+  const supabase = await createClient()
+
+  const { error } = await supabase
+    .from('shifts')
+    .delete()
+    .gte('shift_date', startDate)
+    .lte('shift_date', endDate)
+
+  if (error) {
+    console.error('Error deleting all shifts:', error)
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/schedule')
+  return { success: true }
+}
+
 export async function runAutoSchedule(startDate: string, endDate: string) {
   const supabase = await createClient()
 
