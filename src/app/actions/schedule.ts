@@ -183,13 +183,13 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       .gte('shift_date', startDate)
       .lte('shift_date', endDate)
 
-    // Fetch coworker history from last 30 days
-    const thirtyDaysAgo = new Date(startDate)
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    // Fetch coworker history from last 60 days (maximizar rotación de compañeros)
+    const sixtyDaysAgo = new Date(startDate)
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
     const { data: coworkerHistory } = await supabase
       .from('coworker_history')
       .select('*')
-      .gte('shift_date', thirtyDaysAgo.toISOString().split('T')[0])
+      .gte('shift_date', sixtyDaysAgo.toISOString().split('T')[0])
 
     if (!employees || !stores) {
       return { success: false, error: 'No hay empleados o tiendas disponibles' }
@@ -233,11 +233,23 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     // Track employee -> last store assignment for rotation
     const employeeLastStore = new Map<string, string>()
 
+    // Track shifts per employee per week (for complete employees: max 6 shifts/week)
+    const shiftsPerWeek = new Map<string, number>()
+
+    // Helper: obtener número de semana ISO (lunes-domingo)
+    function getWeekNumber(date: Date): number {
+      const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+      const dayNum = d.getUTCDay() || 7
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+      return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+    }
+
     // For each date
     for (const date of dates) {
       const dayOfWeek = new Date(date).getDay()
-      // En Colombia: solo domingo (0) y festivos usan horario "Dom-Fest", lunes-sábado usan horario normal
-      const isSundayOrHoliday = dayOfWeek === 0 || FESTIVOS_COLOMBIA_2026.includes(date)
+      // En Colombia: sábado (6), domingo (0) y festivos usan horario "Dom-Fest", lunes-viernes usan horario normal
+      const isSaturdayOrSundayOrHoliday = dayOfWeek === 6 || dayOfWeek === 0 || FESTIVOS_COLOMBIA_2026.includes(date)
 
       // Track which employees are already scheduled this day
       const scheduledToday = new Set<string>()
@@ -250,9 +262,8 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         (emp.employee_type === 'weekends_only' || emp.employee_type === 'weekends_half') &&
         emp.is_active
       )
-      const onCallEmployees = employees.filter(emp =>
-        emp.employee_type === 'on_call' && emp.is_active
-      )
+      // on_call employees NO participan en auto-programación (solo asignación manual)
+      const onCallEmployees: typeof employees = []
       const hourlyEmployees = employees.filter(emp =>
         emp.employee_type === 'hourly' && emp.is_active
       )
@@ -266,13 +277,13 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         return array
       }
 
-      // LUN-SAB: Shuffle complete employees
-      if (!isSundayOrHoliday) {
+      // LUN-VIE: Shuffle complete employees
+      if (!isSaturdayOrSundayOrHoliday) {
         shuffleArray(completeEmployees)
       }
 
-      // DOM-FEST: Shuffle weekend employees first
-      if (isSundayOrHoliday) {
+      // SÁB-DOM-FEST: Shuffle weekend employees first (obligatorios)
+      if (isSaturdayOrSundayOrHoliday) {
         shuffleArray(weekendEmployees)
       }
 
@@ -281,10 +292,10 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         const requiredSlots = store.slots_required || 2
         const assigned: string[] = []
 
-        // Build candidate pool based on day type
-        let candidatePool = isSundayOrHoliday
-          ? [...weekendEmployees, ...completeEmployees, ...onCallEmployees, ...hourlyEmployees]
-          : [...completeEmployees, ...hourlyEmployees, ...onCallEmployees]
+        // Build candidate pool based on day type (on_call excluidos - solo manual)
+        let candidatePool = isSaturdayOrSundayOrHoliday
+          ? [...weekendEmployees, ...completeEmployees, ...hourlyEmployees]
+          : [...completeEmployees, ...hourlyEmployees]
 
         // Filter eligible candidates
         let candidates = candidatePool.filter(emp => {
@@ -295,10 +306,12 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           // Check if already scheduled today
           if (scheduledToday.has(emp.id)) return false
 
-          // Check on_call availability
-          if (emp.employee_type === 'on_call') {
-            const dayName = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][dayOfWeek]
-            if (!emp.available_days?.includes(dayName)) return false
+          // Check weekly rest for complete employees (max 6 shifts/week, must rest 1 day)
+          if (emp.employee_type === 'complete') {
+            const weekNum = getWeekNumber(new Date(date))
+            const employeeWeekKey = `${emp.id}-${weekNum}`
+            const shiftsThisWeek = shiftsPerWeek.get(employeeWeekKey) || 0
+            if (shiftsThisWeek >= 6) return false // Ya trabajó 6 días, debe descansar
           }
 
           return true
@@ -345,17 +358,58 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           return Math.random() - 0.5
         })
 
-        // Assign employees to slots
+        // SÁB-DOM-FEST: Forzar asignación de weekend employees primero (obligatorios)
+        if (isSaturdayOrSundayOrHoliday) {
+          const mandatoryEmployees = weekendEmployees.filter(emp =>
+            !scheduledToday.has(emp.id) &&
+            (store.name.startsWith('quest') ? emp.work_permission !== 'koaj_only' : emp.work_permission !== 'quest_only')
+          )
+
+          for (const emp of mandatoryEmployees) {
+            if (assigned.length >= requiredSlots) break
+
+            assigned.push(emp.id)
+            scheduledToday.add(emp.id)
+            employeeLastStore.set(emp.id, store.id)
+
+            // Track shifts per week
+            const weekNum = getWeekNumber(new Date(date))
+            const employeeWeekKey = `${emp.id}-${weekNum}`
+            shiftsPerWeek.set(employeeWeekKey, (shiftsPerWeek.get(employeeWeekKey) || 0) + 1)
+
+            const schedule = store.schedule_weekend
+            const [startStr, endStr] = schedule.split('-')
+
+            newShifts.push({
+              store_id: store.id,
+              employee_id: emp.id,
+              shift_date: date,
+              start_time: startStr,
+              end_time: endStr,
+              is_auto_scheduled: true,
+            })
+          }
+        }
+
+        // Completar slots restantes con candidatos normales
         for (let i = 0; i < requiredSlots && candidates.length > 0; i++) {
           const employee = candidates.shift()!
           if (!employee) continue
+          if (assigned.includes(employee.id)) continue // Skip if already assigned
 
           assigned.push(employee.id)
           scheduledToday.add(employee.id)
           employeeLastStore.set(employee.id, store.id)
 
+          // Track shifts per week for complete employees
+          if (employee.employee_type === 'complete') {
+            const weekNum = getWeekNumber(new Date(date))
+            const employeeWeekKey = `${employee.id}-${weekNum}`
+            shiftsPerWeek.set(employeeWeekKey, (shiftsPerWeek.get(employeeWeekKey) || 0) + 1)
+          }
+
           // Parse store schedule - both employees get the same store hours
-          const schedule = isSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
+          const schedule = isSaturdayOrSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
           const [startStr, endStr] = schedule.split('-')
 
           newShifts.push({
