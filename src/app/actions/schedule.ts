@@ -352,23 +352,15 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           scheduledToday.add(employee.id)
           employeeLastStore.set(employee.id, store.id)
 
-          // Parse store schedule
+          // Parse store schedule - both employees get the same store hours
           const schedule = isWeekend ? store.schedule_weekend : store.schedule_weekday
           const [startStr, endStr] = schedule.split('-')
-
-          // Staggered shifts for lunch coverage
-          let startTime = startStr
-
-          if (i === 1 && requiredSlots === 2) {
-            const startHour = parseInt(startStr.split(':')[0])
-            startTime = `${startHour + 4}:00`
-          }
 
           newShifts.push({
             store_id: store.id,
             employee_id: employee.id,
             shift_date: date,
-            start_time: startTime,
+            start_time: startStr,
             end_time: endStr,
             is_auto_scheduled: true,
           })
