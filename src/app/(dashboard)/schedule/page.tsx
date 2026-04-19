@@ -135,8 +135,16 @@ export default function SchedulePage() {
 
   function handleAddShift(date: Date, storeId: string) {
     const store = getStoreById(storeId)
-    const isWeekend = date.getDay() === 0 || date.getDay() === 6
-    const schedule = isWeekend ? store?.schedule_weekend : store?.schedule_weekday
+    // En Colombia: solo domingo (0) y festivos usan horario "Dom-Fest", lunes-sábado usan horario normal
+    const dateStr = format(date, 'yyyy-MM-dd')
+    const FESTIVOS_COLOMBIA_2026 = [
+      '2026-01-01', '2026-01-12', '2026-03-19', '2026-04-02', '2026-04-03',
+      '2026-04-06', '2026-05-01', '2026-05-18', '2026-06-08', '2026-06-29',
+      '2026-06-30', '2026-07-20', '2026-08-07', '2026-08-17', '2026-10-12',
+      '2026-11-02', '2026-11-16', '2026-12-08', '2026-12-25',
+    ]
+    const isSundayOrHoliday = date.getDay() === 0 || FESTIVOS_COLOMBIA_2026.includes(dateStr)
+    const schedule = isSundayOrHoliday ? store?.schedule_weekend : store?.schedule_weekday
 
     // Parsear horario de la tienda (ej: "9:00-19:00" → start: "09:00", end: "19:00")
     let start = "09:00"

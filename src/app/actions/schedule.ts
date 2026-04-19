@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { FESTIVOS_COLOMBIA_2026 } from '@/lib/constants'
 
 export interface CreateShiftData {
   store_id: string
@@ -235,7 +236,8 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     // For each date
     for (const date of dates) {
       const dayOfWeek = new Date(date).getDay()
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
+      // En Colombia: solo domingo (0) y festivos usan horario "Dom-Fest", lunes-sábado usan horario normal
+      const isSundayOrHoliday = dayOfWeek === 0 || FESTIVOS_COLOMBIA_2026.includes(date)
 
       // Track which employees are already scheduled this day
       const scheduledToday = new Set<string>()
@@ -264,13 +266,13 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         return array
       }
 
-      // WEEKDAYS: Shuffle complete employees
-      if (!isWeekend) {
+      // LUN-SAB: Shuffle complete employees
+      if (!isSundayOrHoliday) {
         shuffleArray(completeEmployees)
       }
 
-      // WEEKENDS: Shuffle weekend employees first
-      if (isWeekend) {
+      // DOM-FEST: Shuffle weekend employees first
+      if (isSundayOrHoliday) {
         shuffleArray(weekendEmployees)
       }
 
@@ -280,7 +282,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         const assigned: string[] = []
 
         // Build candidate pool based on day type
-        let candidatePool = isWeekend
+        let candidatePool = isSundayOrHoliday
           ? [...weekendEmployees, ...completeEmployees, ...onCallEmployees, ...hourlyEmployees]
           : [...completeEmployees, ...hourlyEmployees, ...onCallEmployees]
 
@@ -353,7 +355,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           employeeLastStore.set(employee.id, store.id)
 
           // Parse store schedule - both employees get the same store hours
-          const schedule = isWeekend ? store.schedule_weekend : store.schedule_weekday
+          const schedule = isSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
           const [startStr, endStr] = schedule.split('-')
 
           newShifts.push({
