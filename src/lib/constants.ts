@@ -131,8 +131,8 @@ export const FESTIVOS_COLOMBIA_2026: string[] = [
   '2026-05-01', // Día del Trabajo
   '2026-05-18', // Ascensión del Señor (lunes siguiente)
   '2026-06-08', // Corpus Christi (lunes siguiente)
-  '2026-06-29', // Sagrado Corazón (lunes siguiente)
-  '2026-06-30', // San Pedro y San Pablo (lunes siguiente)
+  '2026-06-15', // Sagrado Corazón (lunes siguiente)
+  '2026-06-29', // San Pedro y San Pablo (lunes siguiente)
   '2026-07-20', // Grito de Independencia
   '2026-08-07', // Batalla de Boyacá
   '2026-08-17', // Asunción de la Virgen (lunes siguiente)
