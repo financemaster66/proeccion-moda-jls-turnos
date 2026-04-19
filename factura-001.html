@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Factura 001 - Finance Master</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.4;
+      color: #1a1a2e;
+      background: #ffffff;
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 10mm;
+    }
+
+    .invoice-container {
+      border: 1px solid #e0e0e0;
+      padding: 6mm;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 12px;
+      border-bottom: 3px solid #4a6cf7;
+    }
+
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-section img {
+      width: 70px;
+      height: auto;
+    }
+
+    .company-name {
+      font-size: 16pt;
+      font-weight: 700;
+      color: #4a6cf7;
+    }
+
+    .company-info {
+      font-size: 8.5pt;
+      color: #666;
+      margin-top: 3px;
+    }
+
+    .invoice-title {
+      text-align: right;
+    }
+
+    .invoice-title h1 {
+      font-size: 20pt;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 3px;
+    }
+
+    .invoice-meta {
+      font-size: 9.5pt;
+      color: #555;
+    }
+
+    /* Client & Issuer Info */
+    .info-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .info-box {
+      background: #f8f9fc;
+      padding: 10px 12px;
+      border-radius: 4px;
+      border-left: 3px solid #4a6cf7;
+    }
+
+    .info-box h3 {
+      font-size: 9pt;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    .info-box p {
+      font-size: 10pt;
+      color: #1a1a2e;
+      font-weight: 600;
+    }
+
+    .info-box .small {
+      font-size: 9pt;
+      color: #666;
+      font-weight: 400;
+      margin-top: 3px;
+    }
+
+    /* Services Table */
+    .services-section {
+      margin-bottom: 12px;
+    }
+
+    .services-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .services-table th {
+      background: #4a6cf7;
+      color: white;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 9pt;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .services-table td {
+      padding: 10px;
+      border-bottom: 1px solid #e0e0e0;
+      vertical-align: top;
+    }
+
+    .services-table .description {
+      width: 60%;
+      font-size: 9.5pt;
+      line-height: 1.5;
+    }
+
+    .services-table .qty,
+    .services-table .unit-price,
+    .services-table .total {
+      text-align: center;
+      font-size: 9.5pt;
+    }
+
+    .services-table .total {
+      font-weight: 700;
+      color: #1a1a2e;
+    }
+
+    /* Effort Details */
+    .effort-details {
+      background: #f8f9fc;
+      padding: 10px 12px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      border: 1px solid #e0e6f0;
+    }
+
+    .effort-details h4 {
+      font-size: 9pt;
+      color: #4a6cf7;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+
+    .effort-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+      font-size: 8.5pt;
+    }
+
+    .effort-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 8px;
+      background: white;
+      border-radius: 3px;
+    }
+
+    .effort-item .label {
+      color: #555;
+    }
+
+    .effort-item .value {
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .tech-stack {
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: #4a6cf7;
+      color: white;
+      border-radius: 3px;
+      font-size: 8.5pt;
+      text-align: center;
+    }
+
+    /* Totals */
+    .totals-section {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 12px;
+    }
+
+    .totals-box {
+      width: 240px;
+      background: #f8f9fc;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+
+    .totals-row:last-child {
+      border-bottom: none;
+    }
+
+    .totals-row.total {
+      background: #4a6cf7;
+      color: white;
+      font-size: 12pt;
+      font-weight: 700;
+    }
+
+    .totals-label {
+      color: #555;
+    }
+
+    .totals-row.total .totals-label {
+      color: rgba(255,255,255,0.9);
+    }
+
+    .totals-amount {
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .totals-row.total .totals-amount {
+      color: white;
+    }
+
+    /* Total in Letters */
+    .total-letters {
+      text-align: right;
+      font-size: 9pt;
+      color: #555;
+      margin-bottom: 10px;
+      font-style: italic;
+    }
+
+    /* Payment Info */
+    .payment-section {
+      background: #f8f9fc;
+      padding: 10px 12px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+    }
+
+    .payment-section h4 {
+      font-size: 9pt;
+      color: #4a6cf7;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+
+    .payment-row {
+      display: flex;
+      gap: 10px;
+      font-size: 9.5pt;
+    }
+
+    .payment-label {
+      font-weight: 600;
+      color: #555;
+      min-width: 100px;
+    }
+
+    .payment-value {
+      color: #1a1a2e;
+      flex: 1;
+      border-bottom: 1px dotted #ccc;
+    }
+
+    /* Legal Note */
+    .legal-note {
+      font-size: 8pt;
+      color: #666;
+      text-align: center;
+      padding: 8px;
+      background: #fff9e6;
+      border: 1px solid #f0e6c0;
+      border-radius: 3px;
+      margin-bottom: 15px;
+      font-style: italic;
+    }
+
+    /* Signature Section */
+    .signature-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+      margin-top: 20px;
+    }
+
+    .signature-box {
+      text-align: center;
+    }
+
+    .signature-line {
+      border-top: 1.5px solid #1a1a2e;
+      margin: 35px 15px 8px;
+      padding-top: 6px;
+    }
+
+    .signature-name {
+      font-weight: 600;
+      color: #1a1a2e;
+      font-size: 9.5pt;
+    }
+
+    .signature-role {
+      font-size: 8.5pt;
+      color: #666;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 10px;
+      border-top: 1px solid #e0e0e0;
+      font-size: 8pt;
+      color: #888;
+    }
+
+    /* Print Optimization */
+    @media print {
+      body {
+        margin: 0;
+        padding: 8mm;
+        max-width: none;
+        width: 210mm;
+      }
+
+      .invoice-container {
+        border: none;
+        padding: 0;
+      }
+
+      .effort-details,
+      .payment-section {
+        background: #f8f9fc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .services-table th,
+      .totals-row.total,
+      .tech-stack {
+        background: #4a6cf7 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .info-box {
+        background: #f8f9fc !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="invoice-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-section">
+        <img src="../Logo .png" alt="Finance Master Logo">
+        <div>
+          <div class="company-name">Finance Master</div>
+          <div class="company-info">
+            📧 financemaster66@gmail.com · 📱 301 911 7915
+          </div>
+        </div>
+      </div>
+      <div class="invoice-title">
+        <h1>FACTURA DE VENTA</h1>
+        <div class="invoice-meta">
+          <span><strong>N°:</strong> 001</span>
+          <span><strong>Fecha:</strong> 15 de abril de 2026</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Client & Issuer Info -->
+    <section class="info-section">
+      <div class="info-box">
+        <h3>Emisor</h3>
+        <p>Finance Master</p>
+        <p class="small">Santiago Bermúdez<br>Desarrollador de Software</p>
+      </div>
+      <div class="info-box">
+        <h3>Cliente</h3>
+        <p>Proección & Moda JLS</p>
+        <p class="small">Fusagasugá, Colombia<br>Empresa Retail</p>
+      </div>
+    </section>
+
+    <!-- Services Table -->
+    <section class="services-section">
+      <table class="services-table">
+        <thead>
+          <tr>
+            <th class="description">Descripción del Servicio</th>
+            <th class="qty">Cant.</th>
+            <th class="unit-price">Valor Unit.</th>
+            <th class="total">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <strong>Desarrollo de Sistema Web de Gestión de Turnos</strong><br>
+              Sistema multi-local con: módulo de empleados (CRUD, 5 tipos de contrato),
+              gestión de tiendas (horarios, colores), algoritmo de auto-programación
+              con restricciones de negocio, panel de control visual quincenal,
+              autenticación con roles, exportación a PNG, base de datos PostgreSQL/Supabase.
+            </td>
+            <td class="qty">1</td>
+            <td class="unit-price">$360.000</td>
+            <td class="total">$360.000</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Effort Details -->
+    <section class="effort-details">
+      <h4>📊 Desglose del Esfuerzo Técnico</h4>
+      <div class="effort-grid">
+        <div class="effort-item">
+          <span class="label">Horas de desarrollo</span>
+          <span class="value">40 horas</span>
+        </div>
+        <div class="effort-item">
+          <span class="label">Líneas de código</span>
+          <span class="value">~4,000 LOC</span>
+        </div>
+        <div class="effort-item">
+          <span class="label">Archivos</span>
+          <span class="value">32 archivos</span>
+        </div>
+        <div class="effort-item">
+          <span class="label">Tablas DB</span>
+          <span class="value">5 tablas</span>
+        </div>
+        <div class="effort-item">
+          <span class="label">Server Actions</span>
+          <span class="value">15 funciones</span>
+        </div>
+        <div class="effort-item">
+          <span class="label">Componentes UI</span>
+          <span class="value">12+ componentes</span>
+        </div>
+      </div>
+      <div class="tech-stack">
+        <strong>Tecnologías:</strong> Next.js 16 · React 19 · TypeScript · Tailwind CSS v4 · Supabase · shadcn/ui
+      </div>
+    </section>
+
+    <!-- Totals -->
+    <section class="totals-section">
+      <div class="totals-box">
+        <div class="totals-row total">
+          <span class="totals-label">TOTAL</span>
+          <span class="totals-amount">$360.000</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Total in Letters -->
+    <div class="total-letters">
+      Son: TRESCIENTOS SESENTA MIL PESOS MCTE.
+    </div>
+
+    <!-- Payment Info -->
+    <section class="payment-section">
+      <h4>Información de Pago</h4>
+      <div class="payment-row">
+        <span class="payment-label">Forma de pago:</span>
+        <span class="payment-value">___________________________</span>
+      </div>
+      <div class="payment-row">
+        <span class="payment-label">Fecha de pago:</span>
+        <span class="payment-value">___________________________</span>
+      </div>
+    </section>
+
+    <!-- Legal Note -->
+    <div class="legal-note">
+      ⚠️ Esta factura presta mérito ejecutivo según el Artículo 772 del Código de Comercio colombiano.
+    </div>
+
+    <!-- Signature Section -->
+    <section class="signature-section">
+      <div class="signature-box">
+        <div class="signature-line">
+          <div class="signature-name">Finance Master</div>
+          <div class="signature-role">Emisor</div>
+        </div>
+      </div>
+      <div class="signature-box">
+        <div class="signature-line">
+          <div class="signature-name">Proección & Moda JLS</div>
+          <div class="signature-role">Cliente - Recibido a satisfacción</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      Finance Master © 2026 · financemaster66@gmail.com · 301 911 7915
+    </footer>
+  </div>
+</body>
+</html>

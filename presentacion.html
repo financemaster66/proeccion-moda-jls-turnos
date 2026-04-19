@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proección y Moda JLS - Sistema de Turnos</title>
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --bg-card: #1e293b;
+      --primary: #3b82f6;
+      --primary-light: #60a5fa;
+      --accent: #8b5cf6;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+    }
+
+    .presentation {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .slide {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 4rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.6s ease, transform 0.6s ease;
+      transform: translateX(100%);
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(0);
+    }
+
+    .slide.exit {
+      opacity: 0;
+      transform: translateX(-100%);
+    }
+
+    .slide-content {
+      max-width: 1200px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 4rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, var(--primary-light), var(--accent));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    h2 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 2rem;
+      color: var(--text);
+    }
+
+    h3 {
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: var(--primary-light);
+      margin-bottom: 1rem;
+    }
+
+    p {
+      font-size: 1.4rem;
+      line-height: 1.8;
+      color: var(--text-muted);
+      max-width: 800px;
+      margin: 0 auto 1.5rem;
+    }
+
+    .tagline {
+      font-size: 1.8rem;
+      color: var(--text-muted);
+      font-style: italic;
+      margin-top: 1rem;
+    }
+
+    .logo-container {
+      width: 200px;
+      height: 200px;
+      margin: 0 auto 2rem;
+      border-radius: 16px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.1);
+      box-shadow: 0 20px 60px rgba(59, 130, 246, 0.3);
+    }
+
+    .logo-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      padding: 1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border-radius: 16px;
+      padding: 2rem;
+      text-align: left;
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+
+    .card-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .card-title {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+
+    .card-desc {
+      font-size: 1rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .pain-points {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .pain-point {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid var(--danger);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      text-align: left;
+    }
+
+    .pain-emoji {
+      font-size: 3rem;
+    }
+
+    .pain-text {
+      font-size: 1.3rem;
+      color: var(--text);
+    }
+
+    .tech-stack {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .tech-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .tech-logo {
+      width: 80px;
+      height: 80px;
+      background: var(--bg-card);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 800;
+      border: 2px solid var(--primary);
+    }
+
+    .tech-name {
+      font-size: 1rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .comparison-table {
+      width: 100%;
+      max-width: 900px;
+      margin: 2rem auto;
+      border-collapse: collapse;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 1.5rem;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .comparison-table th {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    .comparison-table th.before {
+      color: var(--danger);
+    }
+
+    .comparison-table th.after {
+      color: var(--success);
+    }
+
+    .comparison-table td {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+      margin-top: 3rem;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      border-radius: 20px;
+      padding: 2.5rem;
+      text-align: center;
+    }
+
+    .stat-number {
+      font-size: 4rem;
+      font-weight: 800;
+      color: white;
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 1.1rem;
+      color: rgba(255,255,255,0.9);
+      margin-top: 0.5rem;
+    }
+
+    .nav-controls {
+      position: fixed;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 1rem;
+      z-index: 100;
+    }
+
+    .nav-btn {
+      background: var(--bg-card);
+      border: 2px solid var(--primary);
+      color: var(--text);
+      padding: 0.75rem 1.5rem;
+      border-radius: 50px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: all 0.3s ease;
+    }
+
+    .nav-btn:hover {
+      background: var(--primary);
+      transform: scale(1.05);
+    }
+
+    .nav-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .slide-counter {
+      position: fixed;
+      top: 2rem;
+      right: 2rem;
+      font-size: 1rem;
+      color: var(--text-muted);
+      background: var(--bg-card);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      z-index: 100;
+    }
+
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      color: white;
+      font-size: 1.5rem;
+      font-weight: 700;
+      padding: 1.5rem 4rem;
+      border-radius: 50px;
+      text-decoration: none;
+      margin-top: 2rem;
+      box-shadow: 0 20px 60px rgba(59, 130, 246, 0.4);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .cta-button:hover {
+      transform: scale(1.05);
+      box-shadow: 0 30px 80px rgba(59, 130, 246, 0.5);
+    }
+
+    .contact-info {
+      margin-top: 2rem;
+      font-size: 1.2rem;
+      color: var(--text-muted);
+    }
+
+    .demo-mockup {
+      background: var(--bg-card);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+      max-width: 1000px;
+      margin: 2rem auto;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .demo-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 0.5rem;
+    }
+
+    .demo-cell {
+      background: rgba(59, 130, 246, 0.2);
+      border-radius: 8px;
+      padding: 1rem 0.5rem;
+      text-align: center;
+      font-size: 0.9rem;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .demo-cell.header {
+      background: var(--primary);
+      font-weight: 700;
+    }
+
+    .demo-cell.shift {
+      background: rgba(139, 92, 246, 0.3);
+      border-color: var(--accent);
+    }
+
+    .fullscreen-btn {
+      position: fixed;
+      top: 2rem;
+      left: 2rem;
+      background: var(--bg-card);
+      border: 2px solid var(--primary);
+      color: var(--text);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      z-index: 100;
+      transition: all 0.3s ease;
+    }
+
+    .fullscreen-btn:hover {
+      background: var(--primary);
+    }
+
+    .humor-badge {
+      display: inline-block;
+      background: rgba(245, 158, 11, 0.2);
+      border: 1px solid var(--warning);
+      color: var(--warning);
+      padding: 0.5rem 1rem;
+      border-radius: 50px;
+      font-size: 0.9rem;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <button class="fullscreen-btn" onclick="toggleFullscreen()">⛶ Pantalla Completa</button>
+  <div class="slide-counter">
+    <span id="currentSlide">1</span> / <span id="totalSlides">8</span>
+  </div>
+
+  <div class="presentation">
+    <!-- Slide 1: Portada -->
+    <div class="slide active" data-slide="1">
+      <div class="slide-content">
+        <div class="logo-container">
+          <img src="./public/images/logo.png" alt="Proección y Moda JLS">
+        </div>
+        <h1>Sistema de Gestión de Turnos</h1>
+        <p class="tagline">"Porque organizar turnos en Excel es como usar fax en 2024"</p>
+        <div class="humor-badge">💼 100% libre de WhatsApp corporativo</div>
+      </div>
+    </div>
+
+    <!-- Slide 2: El Problema -->
+    <div class="slide" data-slide="2">
+      <div class="slide-content">
+        <h2>😩 El Caos Antes del Sistema</h2>
+        <div class="pain-points">
+          <div class="pain-point">
+            <span class="pain-emoji">📝</span>
+            <span class="pain-text"><strong>Turnos en papel:</strong> Se perdían, se manchaban de café, y nadie entendía la letra del gerente</span>
+          </div>
+          <div class="pain-point">
+            <span class="pain-emoji">❌</span>
+            <span class="pain-text"><strong>Errores humanos:</strong> "¿Yo trabajo sábado?" "No, era el otro Juan"</span>
+          </div>
+          <div class="pain-point">
+            <span class="pain-emoji">📱</span>
+            <span class="pain-text"><strong>WhatsApp como "sistema":</strong> 47 mensajes no leídos, 3 tiendas diferentes, 0 organización</span>
+          </div>
+        </div>
+        <div class="humor-badge">📊 Excel murió aquí. 2024-2025 🪦</div>
+      </div>
+    </div>
+
+    <!-- Slide 3: La Solución -->
+    <div class="slide" data-slide="3">
+      <div class="slide-content">
+        <h2>✨ La Solución</h2>
+        <p>Un sistema centralizado que automatiza lo que antes tomaba horas de dolor humano</p>
+        <div class="grid">
+          <div class="card">
+            <div class="card-icon">🤖</div>
+            <div class="card-title">Auto-Programación</div>
+            <div class="card-desc">Asigna turnos automáticamente considerando disponibilidad, tiendas y evitando repetir compañeros</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">📅</div>
+            <div class="card-title">Calendario Visual</div>
+            <div class="card-desc">Vista clara de 15 días con todos los turnos por tienda. Exportable a PNG para compartir</div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🔐</div>
+            <div class="card-title">Acceso Seguro</div>
+            <div class="card-desc">Login por usuario/contraseña con roles diferenciados para gerentes y administradores</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 4: Demo Visual -->
+    <div class="slide" data-slide="4">
+      <div class="slide-content">
+        <h2>🖥️ Dashboard del Sistema</h2>
+        <div class="demo-mockup">
+          <div class="demo-header">
+            <div class="logo-container" style="width: 60px; height: 60px; margin: 0;">
+              <img src="./public/images/logo.png" alt="Logo">
+            </div>
+            <div style="text-align: left;">
+              <h3 style="margin: 0;">Proección y Moda JLS - Turnos</h3>
+              <span style="color: var(--text-muted);">Vista de Horarios</span>
+            </div>
+          </div>
+          <div class="demo-grid">
+            <div class="demo-cell header">Lun</div>
+            <div class="demo-cell header">Mar</div>
+            <div class="demo-cell header">Mié</div>
+            <div class="demo-cell header">Jue</div>
+            <div class="demo-cell header">Vie</div>
+            <div class="demo-cell header">Sáb</div>
+            <div class="demo-cell header">Dom</div>
+            <div class="demo-cell">Ana<br><small>KOAJ Centro</small></div>
+            <div class="demo-cell">Carlos<br><small>KOAJ Norte</small></div>
+            <div class="demo-cell">Ana<br><small>KOAJ Centro</small></div>
+            <div class="demo-cell">Diana<br><small>QUEST</small></div>
+            <div class="demo-cell">Carlos<br><small>KOAJ Norte</small></div>
+            <div class="demo-cell shift">Juan<br><small>KOAJ Sur</small></div>
+            <div class="demo-cell shift">Maria<br><small>KOAJ Centro</small></div>
+          </div>
+        </div>
+        <div class="humor-badge">🎨 UI tan limpia que da ganas de trabajar el fin de semana</div>
+      </div>
+    </div>
+
+    <!-- Slide 5: Stack Técnico -->
+    <div class="slide" data-slide="5">
+      <div class="slide-content">
+        <h2>🛠️ Stack Tecnológico</h2>
+        <p>Tecnologías modernas para un sistema que no te va a fallar</p>
+        <div class="tech-stack">
+          <div class="tech-item">
+            <div class="tech-logo">⚛️</div>
+            <div class="tech-name">Next.js 16<br><small>App Router + React 19</small></div>
+          </div>
+          <div class="tech-item">
+            <div class="tech-logo">🐘</div>
+            <div class="tech-name">Supabase<br><small>PostgreSQL en la nube</small></div>
+          </div>
+          <div class="tech-item">
+            <div class="tech-logo">🎨</div>
+            <div class="tech-name">shadcn/ui<br><small>Componentes modernos</small></div>
+          </div>
+          <div class="tech-item">
+            <div class="tech-logo">💨</div>
+            <div class="tech-name">Tailwind CSS<br><small>Estilos utilitarios</small></div>
+          </div>
+          <div class="tech-item">
+            <div class="tech-logo">▲</div>
+            <div class="tech-name">Vercel<br><small>Deploy automático</small></div>
+          </div>
+        </div>
+        <div class="humor-badge">🚀 100% TypeScript. Los errores se detectan antes de que lleguen a producción</div>
+      </div>
+    </div>
+
+    <!-- Slide 6: Datos del Sistema -->
+    <div class="slide" data-slide="6">
+      <div class="slide-content">
+        <h2>📊 En Números</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-number">4</div>
+            <div class="stat-label">Tiendas gestionadas<br><small>3 KOAJ + 1 QUEST</small></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">15</div>
+            <div class="stat-label">Días visibles<br><small>Vista de calendario</small></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">&lt;5s</div>
+            <div class="stat-label">Auto-programación<br><small>vs 2-3 horas manuales</small></div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 3rem;">
+          <div class="card">
+            <div class="card-title">🎯 Tipos de Empleados</div>
+            <div class="card-desc">Complete (6 días), Weekends Only, Hourly, On-Call</div>
+          </div>
+          <div class="card">
+            <div class="card-title">🔄 Rotación Automática</div>
+            <div class="card-desc">Evita repetir compañeros usando historial de 30 días</div>
+          </div>
+          <div class="card">
+            <div class="card-title">🏪 Multi-Tienda</div>
+            <div class="card-desc">Empleados asignados por permiso: KOAJ, QUEST o ambos</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 7: Comparativa -->
+    <div class="slide" data-slide="7">
+      <div class="slide-content">
+        <h2>⚖️ Antes vs Después</h2>
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th class="before">❌ Antes (Excel + WhatsApp)</th>
+              <th class="after">✅ Ahora (Sistema Web)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>2-3 horas armando turnos</td>
+              <td>&lt;5 segundos auto-programados</td>
+            </tr>
+            <tr>
+              <td>Errores de comunicación constantes</td>
+              <td>Todo visible en un solo lugar</td>
+            </tr>
+            <tr>
+              <td>"¿Yo trabajaba hoy o mañana?"</td>
+              <td>Notificaciones automáticas</td>
+            </tr>
+            <tr>
+              <td>Empleados siempre con los mismos compañeros</td>
+              <td>Rotación inteligente maximizada</td>
+            </tr>
+            <tr>
+              <td>Turnos en papel que se perdían</td>
+              <td>Historial permanente en BD</td>
+            </tr>
+            <tr>
+              <td>WhatsApp saturado de mensajes</td>
+              <td>Acceso web desde cualquier dispositivo</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="humor-badge">📉 97% menos mensajes de "¿A qué hora entro mañana?"</div>
+      </div>
+    </div>
+
+    <!-- Slide 8: Cierre -->
+    <div class="slide" data-slide="8">
+      <div class="slide-content">
+        <div class="logo-container">
+          <img src="./public/images/logo.png" alt="Proección y Moda JLS">
+        </div>
+        <h2>🚀 El Futuro es Ahora</h2>
+        <p class="tagline" style="font-size: 2rem; color: var(--text); margin: 2rem 0;">
+          "Adiós al caos. Hola a los turnos automatizados."
+        </p>
+        <a href="#" class="cta-button">Comenzar Ahora</a>
+        <div class="contact-info">
+          <p><strong>Finance Master by Santiago Bermúdez</strong></p>
+          <p>Organizador de empleados Proección y Moda JLS</p>
+          <div class="humor-badge">☕ Hecho con café y código. Sin Excel de por medio.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-controls">
+    <button class="nav-btn" onclick="prevSlide()" id="prevBtn">← Anterior</button>
+    <button class="nav-btn" onclick="nextSlide()" id="nextBtn">Siguiente →</button>
+  </div>
+
+  <script>
+    let currentSlide = 1;
+    const totalSlides = 8;
+
+    document.getElementById('totalSlides').textContent = totalSlides;
+
+    function updateSlide() {
+      document.querySelectorAll('.slide').forEach(slide => {
+        slide.classList.remove('active', 'exit');
+      });
+
+      document.querySelectorAll('.slide').forEach((slide, index) => {
+        const slideNum = index + 1;
+        if (slideNum === currentSlide) {
+          slide.classList.add('active');
+        } else if (slideNum < currentSlide) {
+          slide.classList.add('exit');
+        }
+      });
+
+      document.getElementById('currentSlide').textContent = currentSlide;
+      document.getElementById('prevBtn').disabled = currentSlide === 1;
+      document.getElementById('nextBtn').disabled = currentSlide === totalSlides;
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'Space') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        prevSlide();
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      }
+    });
+
+    // Initialize
+    updateSlide();
+  </script>
+</body>
+</html>

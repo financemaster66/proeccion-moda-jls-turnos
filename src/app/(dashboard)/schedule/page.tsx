@@ -123,6 +123,14 @@ export default function SchedulePage() {
     return stores.find(s => s.id === id)
   }
 
+  function formatTime(timeStr: string): string {
+    // Formatear hora a HH:MM (ej: "9:00" → "09:00", "19:0" → "19:00")
+    const [hours, minutes] = timeStr.split(':')
+    const h = hours.padStart(2, '0')
+    const m = (minutes || '00').padStart(2, '0')
+    return `${h}:${m}`
+  }
+
   function handleAddShift(date: Date, storeId: string) {
     const store = getStoreById(storeId)
     const isWeekend = date.getDay() === 0 || date.getDay() === 6
@@ -133,9 +141,8 @@ export default function SchedulePage() {
     let end = "19:00"
     if (schedule) {
       const [startStr, endStr] = schedule.split('-').map(s => s.trim())
-      // Asegurar formato HH:MM (input time requiere 5 caracteres)
-      start = startStr.length === 4 ? '0' + startStr : startStr
-      end = endStr.length === 4 ? '0' + endStr : endStr
+      start = formatTime(startStr)
+      end = formatTime(endStr)
     }
 
     setSelectedSlot({ date: format(date, 'yyyy-MM-dd'), storeId })
@@ -293,7 +300,12 @@ export default function SchedulePage() {
                 <Button variant="outline" size="sm" onClick={handlePrevRange}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => { setCurrentDate(new Date()); setCurrentRange('first') }}>
+                <Button variant="outline" size="sm" onClick={() => {
+                  const today = new Date()
+                  setCurrentDate(today)
+                  // Ir al rango correcto según el día actual
+                  setCurrentRange(today.getDate() > 15 ? 'second' : 'first')
+                }}>
                   <Calendar className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Hoy</span>
                 </Button>
