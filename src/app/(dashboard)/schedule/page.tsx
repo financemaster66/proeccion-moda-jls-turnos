@@ -19,7 +19,8 @@ import { toast } from 'sonner'
 import domtoimage from 'dom-to-image'
 
 export default function SchedulePage() {
-  const [currentDate, setCurrentDate] = useState(new Date())
+  const today = new Date()
+  const [currentDate, setCurrentDate] = useState(today)
   const [stores, setStores] = useState<Store[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
@@ -27,7 +28,8 @@ export default function SchedulePage() {
   const [isAddShiftOpen, setIsAddShiftOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; storeId: string } | null>(null)
   const [isAutoScheduling, setIsAutoScheduling] = useState(false)
-  const [currentRange, setCurrentRange] = useState<'first' | 'second'>('first')
+  // Iniciar en el rango correcto según el día actual
+  const [currentRange, setCurrentRange] = useState<'first' | 'second'>(today.getDate() > 15 ? 'second' : 'first')
 
   // Estados controlados para el dialog
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
