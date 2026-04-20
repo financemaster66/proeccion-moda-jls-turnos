@@ -13,6 +13,8 @@ type: feedback
 2. **Fin de semana (weekends_only/weekends_half)**: OBLIGATORIO trabajar Sáb-Dom-Fest (prioridad máxima)
    - En días Sáb-Dom-Fest, estos empleados se asignan PRIMERO antes que cualquier otro
    - Solo se excluyen por permiso de tienda (koaj_only/quest_only) o si ya están asignados ese día
+   - **Importante**: Si hay suficientes weekend employees para llenar todos los slots, NO se añaden complete employees
+   - Si faltan slots después de asignar weekend employees, se completan con complete employees disponibles
 
 3. **Eventuales (on_call)**: NO participan en auto-programación (solo asignación manual)
    - El array `onCallEmployees` se vacía explícitamente en `runAutoSchedule`

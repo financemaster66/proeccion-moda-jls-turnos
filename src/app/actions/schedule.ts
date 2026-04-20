@@ -358,6 +358,9 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           return Math.random() - 0.5
         })
 
+        // Determinar cuántos slots faltan asignar
+        let remainingSlots = requiredSlots
+
         // SÁB-DOM-FEST: Forzar asignación de weekend employees primero (obligatorios)
         if (isSaturdayOrSundayOrHoliday) {
           const mandatoryEmployees = weekendEmployees.filter(emp =>
@@ -366,11 +369,12 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           )
 
           for (const emp of mandatoryEmployees) {
-            if (assigned.length >= requiredSlots) break
+            if (remainingSlots <= 0) break
 
             assigned.push(emp.id)
             scheduledToday.add(emp.id)
             employeeLastStore.set(emp.id, store.id)
+            remainingSlots--
 
             // Track shifts per week
             const weekNum = getWeekNumber(new Date(date))
@@ -391,8 +395,8 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           }
         }
 
-        // Completar slots restantes con candidatos normales
-        for (let i = 0; i < requiredSlots && candidates.length > 0; i++) {
+        // Completar slots restantes con candidatos (complete/hourly si faltan)
+        for (let i = 0; i < remainingSlots && candidates.length > 0; i++) {
           const employee = candidates.shift()!
           if (!employee) continue
           if (assigned.includes(employee.id)) continue // Skip if already assigned
