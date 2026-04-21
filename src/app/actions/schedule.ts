@@ -236,6 +236,46 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     // Track shifts per employee per week (for complete employees: max 6 shifts/week)
     const shiftsPerWeek = new Map<string, number>()
 
+    // Track consecutive working days per employee (max 6 consecutive days, then must rest)
+    const consecutiveDays = new Map<string, number>()
+
+    // Initialize consecutiveDays from existing shifts (before the date range)
+    // Get shifts ordered by date to calculate consecutive streaks
+    const { data: priorShifts } = await supabase
+      .from('shifts')
+      .select('employee_id, shift_date')
+      .lt('shift_date', startDate)
+      .order('shift_date', { ascending: true })
+
+    // Build streak for each employee
+    const employeeShiftDates = new Map<string, string[]>()
+    priorShifts?.forEach(shift => {
+      if (!employeeShiftDates.has(shift.employee_id)) {
+        employeeShiftDates.set(shift.employee_id, [])
+      }
+      employeeShiftDates.get(shift.employee_id)!.push(shift.shift_date)
+    })
+
+    // Calculate current streak for each employee
+    employeeShiftDates.forEach((dates, empId) => {
+      let streak = 0
+      for (let i = dates.length - 1; i >= 0; i--) {
+        if (i === dates.length - 1) {
+          streak = 1
+        } else {
+          const current = new Date(dates[i])
+          const next = new Date(dates[i + 1])
+          const diffDays = Math.floor((next.getTime() - current.getTime()) / (1000 * 60 * 60 * 24))
+          if (diffDays === 1) {
+            streak++
+          } else {
+            break // Racha interrumpida
+          }
+        }
+      }
+      consecutiveDays.set(empId, streak)
+    })
+
     // Helper: obtener número de semana ISO (lunes-domingo)
     function getWeekNumber(date: Date): number {
       const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
@@ -311,7 +351,14 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
             const weekNum = getWeekNumber(new Date(date))
             const employeeWeekKey = `${emp.id}-${weekNum}`
             const shiftsThisWeek = shiftsPerWeek.get(employeeWeekKey) || 0
-            if (shiftsThisWeek >= 6) return false // Ya trabajó 6 días, debe descansar
+            if (shiftsThisWeek >= 6) return false // Ya trabajó 6 días esta semana, debe descansar
+
+            // Check consecutive days (max 6 consecutive days without rest)
+            // Si lleva 6 días seguidos y hoy es el día siguiente al último, debe descansar
+            const currentStreak = consecutiveDays.get(emp.id) || 0
+            if (currentStreak >= 6) {
+              return false // Lleva 6 días seguidos, debe descansar hoy
+            }
           }
 
           return true
@@ -381,6 +428,14 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
             const employeeWeekKey = `${emp.id}-${weekNum}`
             shiftsPerWeek.set(employeeWeekKey, (shiftsPerWeek.get(employeeWeekKey) || 0) + 1)
 
+            // Track consecutive days
+            if (!employeeShiftDates.has(emp.id)) {
+              employeeShiftDates.set(emp.id, [])
+            }
+            employeeShiftDates.get(emp.id)!.push(date)
+            const currentStreak = consecutiveDays.get(emp.id) || 0
+            consecutiveDays.set(emp.id, currentStreak + 1)
+
             const schedule = store.schedule_weekend
             const [startStr, endStr] = schedule.split('-')
 
@@ -411,6 +466,14 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
             const employeeWeekKey = `${employee.id}-${weekNum}`
             shiftsPerWeek.set(employeeWeekKey, (shiftsPerWeek.get(employeeWeekKey) || 0) + 1)
           }
+
+          // Track consecutive days
+          if (!employeeShiftDates.has(employee.id)) {
+            employeeShiftDates.set(employee.id, [])
+          }
+          employeeShiftDates.get(employee.id)!.push(date)
+          const currentStreak = consecutiveDays.get(employee.id) || 0
+          consecutiveDays.set(employee.id, currentStreak + 1)
 
           // Parse store schedule - both employees get the same store hours
           const schedule = isSaturdayOrSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
@@ -446,6 +509,16 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           warnings.push(
             `${store.display_name} el ${date}: ${assigned.length}/${requiredSlots} turnos asignados (espacios vacíos disponibles)`
           )
+        }
+      }
+
+      // Al final del día: resetear racha de empleados que NO trabajaron hoy
+      // y continuar racha de los que sí trabajaron (ya se hizo arriba)
+      const completeAndHourlyEmployees = [...completeEmployees, ...hourlyEmployees]
+      for (const emp of completeAndHourlyEmployees) {
+        if (!scheduledToday.has(emp.id)) {
+          // No trabajó hoy - resetear racha
+          consecutiveDays.set(emp.id, 0)
         }
       }
     }
