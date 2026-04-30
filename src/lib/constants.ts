@@ -142,3 +142,24 @@ export const FESTIVOS_COLOMBIA_2026: string[] = [
   '2026-12-08', // Inmaculada Concepción
   '2026-12-25', // Navidad
 ]
+
+// Configuración del algoritmo de auto-agendamiento
+export const AUTO_SCHEDULE_CONFIG = {
+  // Paso 1: FDS en bloques
+  WEEKEND_BLOCK_NO_REPEAT: true,  // FDS NUNCA repite compañero en mismo bloque
+
+  // Paso 2: TC entre semana
+  TC_MAX_SHIFTS_PER_WEEK: 6,
+  TC_MAX_CONSECUTIVE_DAYS: 6,      // Límite absoluto: 6 días seguidos → descanso
+  COWORKER_HISTORY_DAYS: 60,       // Historial de parejas
+  STORE_ROTATION_DAYS: 14,         // Rotación agresiva: 14 días
+
+  // Paso 3: Correctivo
+  MAX_CONSECUTIVE_DAYS_HARD: 6,    // Límite absoluto - forzar descanso
+
+  // Prioridades de ordenamiento
+  PRIORITY_NO_REPEAT_THIS_WEEK: 1000,  // No repetir compañero esta semana
+  PRIORITY_DAYS_SINCE_PAIRING: 100,    // Días desde último emparejamiento
+  PRIORITY_STORE_ROTATION: 10,         // Rotación de tienda (14 días)
+  PRIORITY_RANDOM: 1,                  // Random tiebreaker
+}

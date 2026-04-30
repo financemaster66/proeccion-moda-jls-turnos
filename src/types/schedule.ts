@@ -101,3 +101,30 @@ export interface ScheduleResult {
   errors: string[]
   warnings: string[]
 }
+
+// Tipos para algoritmo de auto-agendamiento
+export interface WeekendBlock {
+  blockId: string
+  dates: string[]  // Días contiguos Sáb/Dom/Fest
+  start: string
+  end: string
+}
+
+export interface AssignmentCandidate {
+  employeeId: string
+  daysSinceLastPairing: number
+  shiftsAtStoreLast14Days: number
+  lastStoreId: string | null
+  shiftsThisWeek: number
+  consecutiveDays: number
+  wouldRepeatCoworkerThisWeek: boolean
+}
+
+export interface ShiftAssignment {
+  storeId: string
+  employeeId: string
+  date: string
+  startTime: string
+  endTime: string
+  isWeekendSlot: boolean
+}

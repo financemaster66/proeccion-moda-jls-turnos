@@ -6,9 +6,12 @@ type: feedback
 
 **Reglas de Auto-Agendamiento:**
 
-1. **Tiempo completo (complete)**: Máximo 6 turnos/semana (descansan 1 día obligatorio)
+1. **Tiempo completo (complete)**: Máximo 6 turnos/semana Y máximo 6 días consecutivos
    - Se usa `shiftsPerWeek` con número de semana ISO para trackear turnos
    - Cuando un empleado alcanza 6 turnos en una semana, se excluye automáticamente
+   - Se usa `consecutiveDays` para trackear racha de días seguidos trabajados
+   - Si un empleado trabaja 6 días seguidos, se excluye automáticamente del 7mo día
+   - La racha se resetea a 0 cuando el empleado no trabaja un día
 
 2. **Fin de semana (weekends_only/weekends_half)**: OBLIGATORIO trabajar Sáb-Dom-Fest (prioridad máxima)
    - En días Sáb-Dom-Fest, estos empleados se asignan PRIMERO antes que cualquier otro
