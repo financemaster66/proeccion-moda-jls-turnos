@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ChevronLeft, ChevronRight, Calendar, Plus, Play, Download, Sparkles, Trash2 } from 'lucide-react'
 import type { Store, Employee, Shift } from '@/types/schedule'
-import { DIAS_SEMANA_CORTO, CONFIGURACION_TURNOS, FOOTER_ATTRIBUTION } from '@/lib/constants'
+import { DIAS_SEMANA_CORTO, CONFIGURACION_TURNOS, FOOTER_ATTRIBUTION, FESTIVOS_COLOMBIA_2026 } from '@/lib/constants'
 import { format, addMonths, startOfMonth, addDays, isSameDay, parseISO, getDaysInMonth } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toast } from 'sonner'
@@ -137,12 +137,6 @@ export default function SchedulePage() {
     const store = getStoreById(storeId)
     // En Colombia: solo domingo (0) y festivos usan horario "Dom-Fest", lunes-sábado usan horario normal
     const dateStr = format(date, 'yyyy-MM-dd')
-    const FESTIVOS_COLOMBIA_2026 = [
-      '2026-01-01', '2026-01-12', '2026-03-19', '2026-04-02', '2026-04-03',
-      '2026-04-06', '2026-05-01', '2026-05-18', '2026-06-08', '2026-06-29',
-      '2026-06-30', '2026-07-20', '2026-08-07', '2026-08-17', '2026-10-12',
-      '2026-11-02', '2026-11-16', '2026-12-08', '2026-12-25',
-    ]
     const isSundayOrHoliday = date.getDay() === 0 || FESTIVOS_COLOMBIA_2026.includes(dateStr)
     const schedule = isSundayOrHoliday ? store?.schedule_weekend : store?.schedule_weekday
 
@@ -376,6 +370,8 @@ export default function SchedulePage() {
                     {dates.map((date) => {
                       const dayShifts = getShiftsForDateAndStore(date, store.id)
                       const isWeekend = date.getDay() === 0 || date.getDay() === 6
+                      const dateStr = format(date, 'yyyy-MM-dd')
+                      const isHoliday = FESTIVOS_COLOMBIA_2026.includes(dateStr)
 
                       return (
                         <div
@@ -386,7 +382,7 @@ export default function SchedulePage() {
                         >
                           <div className="text-center mb-2 pb-2 border-b">
                             <p className="text-xs font-bold text-slate-700">
-                              {format(date, 'EEEE', { locale: es })}
+                              {isHoliday ? 'Fest' : format(date, 'EEEE', { locale: es })}
                             </p>
                             <p className="text-sm font-bold">{format(date, 'd')}</p>
                           </div>
