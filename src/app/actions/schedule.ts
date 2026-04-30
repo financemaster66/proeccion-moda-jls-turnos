@@ -364,6 +364,11 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     const storeEmptySlotsCount = new Map<string, number>()
     stores.forEach(s => storeEmptySlotsCount.set(s.id, 0))
 
+    // Trackear empleados asignados por día (global, no por tienda)
+    // IMPORTANTE: Cada empleado SOLO puede trabajar en 1 tienda por día (mundo real)
+    const assignedPerDay = new Map<string, Set<string>>()
+    dates.forEach(date => assignedPerDay.set(date, new Set<string>()))
+
     // ===== PASO 1: ASIGNAR FDS EN BLOQUES SÁB-DOM-FEST (RELAJADO) =====
     // PRIORIDAD: Llenar slots. FDS pueden repetir compañero si no hay alternativa
     for (const block of blocks) {
@@ -371,6 +376,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
 
       for (const date of block.dates) {
         const weekNum = getWeekNumber(new Date(date))
+        const assignedToday = assignedPerDay.get(date)!
 
         for (const store of stores) {
           const slots = store.slots_required || 2
@@ -380,10 +386,11 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
 
           if (alreadyAssigned.length >= slots) continue
 
-          // Candidatos FDS: solo filtros críticos
+          // Candidatos FDS: solo filtros críticos + NO asignado hoy en OTRA tienda
           let fdsCandidates = weekendEmployees.filter(emp => {
             if (!emp.is_active) return false
             if (!hasCorrectPermission(emp, store)) return false
+            if (assignedToday.has(emp.id)) return false // Ya trabaja en otra tienda hoy
             const empWeekKey = `${emp.id}-${weekNum}`
             if ((shiftsPerWeek.get(empWeekKey) || 0) >= 6) return false
             if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
@@ -403,6 +410,9 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           for (const emp of fdsCandidates) {
             if (alreadyAssigned.length >= slots) break
 
+            // Verificación doble: no asignado hoy
+            if (assignedToday.has(emp.id)) continue
+
             const empWeekKey = `${emp.id}-${weekNum}`
             shiftsPerWeek.set(empWeekKey, (shiftsPerWeek.get(empWeekKey) || 0) + 1)
 
@@ -418,6 +428,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
               pairedInBlock.set(pairKey, true)
             }
 
+            assignedToday.add(emp.id)
             alreadyAssigned.push(emp.id)
 
             const schedule = store.schedule_weekend
@@ -437,9 +448,10 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     }
 
     // ===== PASO 2: ASIGNAR TC EN TODOS LOS DÍAS (LUN-VIE + slots vacíos de FDS) =====
-    // PRIORIDAD: Llenar slots. TC pueden trabajar múltiples tiendas/día
+
     for (const date of dates) {
       const weekNum = getWeekNumber(new Date(date))
+      const assignedToday = assignedPerDay.get(date)!
 
       for (const store of stores) {
         const slots = store.slots_required || 2
@@ -449,10 +461,11 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
 
         if (alreadyAssigned.length >= slots) continue
 
-        // Candidatos TC: solo filtros críticos (sin no-repetición)
+        // Candidatos TC: solo filtros críticos + NO asignado hoy en OTRA tienda
         let tcCandidates = completeEmployees.filter(emp => {
           if (!emp.is_active) return false
           if (!hasCorrectPermission(emp, store)) return false
+          if (assignedToday.has(emp.id)) return false // Ya trabaja en otra tienda hoy
           const weekKey = `${emp.id}-${weekNum}`
           if ((shiftsPerWeek.get(weekKey) || 0) >= 6) return false
           if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
@@ -472,6 +485,9 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         for (const emp of tcCandidates) {
           if (alreadyAssigned.length >= slots) break
 
+          // Verificación doble: no asignado hoy
+          if (assignedToday.has(emp.id)) continue
+
           const weekKey = `${emp.id}-${weekNum}`
           shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
 
@@ -481,6 +497,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           employeeShiftDates.get(emp.id)!.push(date)
           consecutiveDays.set(emp.id, (consecutiveDays.get(emp.id) || 0) + 1)
 
+          assignedToday.add(emp.id)
           alreadyAssigned.push(emp.id)
 
           const dateObj = new Date(date)
