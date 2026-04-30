@@ -357,9 +357,6 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       })
     }
 
-    // Track which employees are already scheduled each day (global)
-    const scheduledTodayGlobal = new Map<string, Set<string>>()
-    dates.forEach(date => scheduledTodayGlobal.set(date, new Set<string>()))
 
     // Track empty slots rotation for KOAJ stores (distribución equitativa)
     const koajStores = stores.filter(s => s.name.startsWith('koaj'))
@@ -367,94 +364,61 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     const storeEmptySlotsCount = new Map<string, number>()
     stores.forEach(s => storeEmptySlotsCount.set(s.id, 0))
 
-    // ===== PASO 1: ASIGNAR FDS EN BLOQUES SÁB-DOM-FEST =====
+    // ===== PASO 1: ASIGNAR FDS EN BLOQUES SÁB-DOM-FEST (RELAJADO) =====
+    // PRIORIDAD: Llenar slots. FDS pueden repetir compañero si no hay alternativa
     for (const block of blocks) {
-      // Mapa: parejaKey -> true si ya coincidieron en este bloque
       const pairedInBlock = new Map<string, boolean>()
 
-      // Para CADA día del bloque (en orden)
       for (const date of block.dates) {
-        const assignedThisDay = scheduledTodayGlobal.get(date)!
-        const emptySlotsByStore = new Map<string, number>()
-        let totalEmptySlots = 0
-
-        // BUG #4 FIX: Lista dinámica de FDS disponibles (no estática por bloque)
-        // BUG #1 FIX: Con filtros de límites (shiftsPerWeek, consecutiveDays)
         const weekNum = getWeekNumber(new Date(date))
-        const availableWeekendEmployees = shuffleArray(
-          weekendEmployees.filter(emp => {
-            const empWeekKey = `${emp.id}-${weekNum}`
-            return emp.is_active &&
-              !assignedThisDay.has(emp.id) &&
-              (shiftsPerWeek.get(empWeekKey) || 0) < 6 &&
-              (consecutiveDays.get(emp.id) || 0) < 6
-          })
-        )
 
-        // Ordenar tiendas rotativamente para distribuir slots vacíos
-        const storesOrder = [...stores].sort((a, b) => {
-          const aEmpty = storeEmptySlotsCount.get(a.id) || 0
-          const bEmpty = storeEmptySlotsCount.get(b.id) || 0
-          return aEmpty - bEmpty // Tiendas con menos vacíos primero
-        })
-
-        for (const store of storesOrder) {
+        for (const store of stores) {
           const slots = store.slots_required || 2
-          let filled = 0
-          const assignedInStore: string[] = []
+          const alreadyAssigned = newShifts
+            .filter(s => s.shift_date === date && s.store_id === store.id)
+            .map(s => s.employee_id)
 
-          // Candidatos FDS: disponibles, con permiso correcto, no asignados hoy
-          // BUG #1 FIX: Con filtros de límites
-          let fdsCandidates = availableWeekendEmployees.filter(emp =>
-            !assignedThisDay.has(emp.id) &&
-            hasCorrectPermission(emp, store)
-          )
+          if (alreadyAssigned.length >= slots) continue
 
-          // BUG #3 FIX: Usar assignedThisDay (global) en lugar de assignedInStore (por tienda)
-          // Filtro de parejas: excluir quienes ya coincidieron en este bloque
-          if (assignedThisDay.size > 0) {
-            fdsCandidates = fdsCandidates.filter(emp => {
-              for (const assignedId of assignedThisDay) {
-                const pairKey = [emp.id, assignedId].sort().join('-')
-                if (pairedInBlock.get(pairKey)) {
-                  return false // Ya coincidieron en este bloque → NO repetir
-                }
-              }
-              return true
-            })
-          }
+          // Candidatos FDS: solo filtros críticos
+          let fdsCandidates = weekendEmployees.filter(emp => {
+            if (!emp.is_active) return false
+            if (!hasCorrectPermission(emp, store)) return false
+            const empWeekKey = `${emp.id}-${weekNum}`
+            if ((shiftsPerWeek.get(empWeekKey) || 0) >= 6) return false
+            if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
+            return true
+          })
 
-          // Asignar FDS sin repetir compañero (regla dura)
+          // Ordenar por menos turnos en la tienda (rotación)
+          fdsCandidates.sort((a, b) => {
+            const aKey = `${a.id}-${store.id}`
+            const bKey = `${b.id}-${store.id}`
+            return (shiftsAtStoreMap.get(aKey) || 0) - (shiftsAtStoreMap.get(bKey) || 0)
+          })
+
           shuffleArray(fdsCandidates)
 
+          // Asignar FDS
           for (const emp of fdsCandidates) {
-            if (filled >= slots) break
+            if (alreadyAssigned.length >= slots) break
 
-            // Registrar asignación
-            assignedInStore.push(emp.id)
-            assignedThisDay.add(emp.id)
-            filled++
+            const empWeekKey = `${emp.id}-${weekNum}`
+            shiftsPerWeek.set(empWeekKey, (shiftsPerWeek.get(empWeekKey) || 0) + 1)
 
-            // Registrar parejas formadas en este bloque
-            for (const otherId of assignedInStore) {
-              if (otherId !== emp.id) {
-                const pairKey = [emp.id, otherId].sort().join('-')
-                pairedInBlock.set(pairKey, true)
-              }
-            }
-
-            // Track shifts per week
-            const weekNum = getWeekNumber(new Date(date))
-            const employeeWeekKey = `${emp.id}-${weekNum}`
-            shiftsPerWeek.set(employeeWeekKey, (shiftsPerWeek.get(employeeWeekKey) || 0) + 1)
-
-            // Track consecutive days
             if (!employeeShiftDates.has(emp.id)) {
               employeeShiftDates.set(emp.id, [])
             }
             employeeShiftDates.get(emp.id)!.push(date)
-            const currentStreak = consecutiveDays.get(emp.id) || 0
-            consecutiveDays.set(emp.id, currentStreak + 1)
+            consecutiveDays.set(emp.id, (consecutiveDays.get(emp.id) || 0) + 1)
+
+            // Registrar parejas en este bloque (solo por tienda)
+            for (const otherId of alreadyAssigned) {
+              const pairKey = [emp.id, otherId].sort().join('-')
+              pairedInBlock.set(pairKey, true)
+            }
+
+            alreadyAssigned.push(emp.id)
 
             const schedule = store.schedule_weekend
             const [startStr, endStr] = schedule.split('-')
@@ -468,185 +432,14 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
               is_auto_scheduled: true,
             })
           }
-
-          // Trackear slots vacíos para completar con TC
-          const emptySlots = slots - filled
-          if (emptySlots > 0) {
-            emptySlotsByStore.set(store.id, emptySlots)
-            totalEmptySlots += emptySlots
-            storeEmptySlotsCount.set(store.id, (storeEmptySlotsCount.get(store.id) || 0) + emptySlots)
-          }
-        }
-
-        // COMPLETAR SLOTS VACÍOS CON TC (no con FDS repetido)
-        if (totalEmptySlots > 0) {
-          const weekNum = getWeekNumber(new Date(date))
-
-          // Ordenar tiendas para rotación de vacíos
-          const storesForEmpty = [...stores].sort((a, b) => {
-            const aEmpty = storeEmptySlotsCount.get(a.id) || 0
-            const bEmpty = storeEmptySlotsCount.get(b.id) || 0
-            return bEmpty - aEmpty // Tiendas con más vacíos primero
-          })
-
-          for (const store of storesForEmpty) {
-            const emptySlots = emptySlotsByStore.get(store.id) || 0
-            if (emptySlots <= 0) continue
-
-            const alreadyAssigned = newShifts
-              .filter(s => s.shift_date === date && s.store_id === store.id)
-              .map(s => s.employee_id)
-
-            // Candidatos TC para completar slots vacíos de FDS
-            // PRIORIDAD: Llenar slots - solo filtros críticos (permiso, no mismo día, límites físicos)
-            let tcCandidates = completeEmployees.filter(emp => {
-              if (assignedThisDay.has(emp.id)) return false
-              if (!hasCorrectPermission(emp, store)) return false
-
-              // Límite semanal
-              const weekKey = `${emp.id}-${weekNum}`
-              if ((shiftsPerWeek.get(weekKey) || 0) >= 6) return false
-
-              // Límite consecutivos (PRIORIDAD > semanal)
-              if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
-
-              return true
-            })
-
-            // Ordenar por score compuesto (síncrono, usa shiftsAtStoreMap pre-calculado)
-            tcCandidates.sort((a, b) => {
-              const scoreA = calculateCandidateScoreSync(a, alreadyAssigned, date, store, weekNum, lastPairedDate, shiftsAtStoreMap)
-              const scoreB = calculateCandidateScoreSync(b, alreadyAssigned, date, store, weekNum, lastPairedDate, shiftsAtStoreMap)
-              return scoreB - scoreA
-            })
-
-            // Asignar candidatos
-            for (let i = 0; i < emptySlots && tcCandidates.length > 0; i++) {
-              const emp = tcCandidates.shift()!
-
-              assignedThisDay.add(emp.id)
-
-              // Track shifts per week
-              const weekKey = `${emp.id}-${weekNum}`
-              shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
-
-              // Track consecutive days
-              if (!employeeShiftDates.has(emp.id)) {
-                employeeShiftDates.set(emp.id, [])
-              }
-              employeeShiftDates.get(emp.id)!.push(date)
-              const currentStreak = consecutiveDays.get(emp.id) || 0
-              consecutiveDays.set(emp.id, currentStreak + 1)
-
-              // BUG #5 FIX: Usar horario correcto según tipo de día
-              const dateObj = new Date(date)
-              const dateStr = format(dateObj, 'yyyy-MM-dd')
-              const isSundayOrHoliday = dateObj.getDay() === 0 || FESTIVOS_COLOMBIA_2026.includes(dateStr)
-              const schedule = isSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
-              const [startStr, endStr] = schedule.split('-')
-
-              newShifts.push({
-                store_id: store.id,
-                employee_id: emp.id,
-                shift_date: date,
-                start_time: startStr,
-                end_time: endStr,
-                is_auto_scheduled: true,
-              })
-            }
-          }
         }
       }
     }
 
-    // ===== PASO 2: ASIGNAR TC ENTRE SEMANA (LUN-VIE) =====
-    const weekdays = dates.filter(date => {
-      const dow = new Date(date).getDay()
-      return dow >= 1 && dow <= 5
-    })
-
-    for (const date of weekdays) {
-      const weekNum = getWeekNumber(new Date(date))
-      const assignedThisDay = scheduledTodayGlobal.get(date)!
-
-      // Ordenar tiendas rotativamente
-      const storesOrder = [...stores].sort((a, b) => {
-        const aEmpty = storeEmptySlotsCount.get(a.id) || 0
-        const bEmpty = storeEmptySlotsCount.get(b.id) || 0
-        return aEmpty - bEmpty
-      })
-      emptySlotRotationIndex = (emptySlotRotationIndex + 1) % stores.length
-
-      for (const store of storesOrder) {
-        const slots = store.slots_required || 2
-        const alreadyAssigned = newShifts
-          .filter(s => s.shift_date === date && s.store_id === store.id)
-          .map(s => s.employee_id)
-
-        let filled = alreadyAssigned.length
-        if (filled >= slots) continue
-
-        // Candidatos TC - PRIORIDAD: Llenar slots
-        // Solo filtros críticos: permiso correcto, no asignado hoy, límites físicos (6/sem, 6 consecutivos)
-        // NOTA: La no-repetición de compañeros es SECUNDARIA - se maneja por ordenamiento, no por exclusión
-        let candidates = completeEmployees.filter(emp => {
-          if (assignedThisDay.has(emp.id)) return false
-          if (!hasCorrectPermission(emp, store)) return false
-
-          const weekKey = `${emp.id}-${weekNum}`
-          if ((shiftsPerWeek.get(weekKey) || 0) >= 6) return false
-          if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
-
-          return true
-        })
-
-        // Ordenar por score compuesto (síncrono, usa shiftsAtStoreMap pre-calculado)
-        candidates.sort((a, b) => {
-          const scoreA = calculateCandidateScoreSync(a, alreadyAssigned, date, store, weekNum, lastPairedDate, shiftsAtStoreMap)
-          const scoreB = calculateCandidateScoreSync(b, alreadyAssigned, date, store, weekNum, lastPairedDate, shiftsAtStoreMap)
-          return scoreB - scoreA
-        })
-
-        // Asignar top candidatos
-        for (let i = 0; i < slots - filled && candidates.length > 0; i++) {
-          const emp = candidates.shift()!
-
-          assignedThisDay.add(emp.id)
-
-          // Track shifts per week
-          const weekKey = `${emp.id}-${weekNum}`
-          shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
-
-          // Track consecutive days
-          if (!employeeShiftDates.has(emp.id)) {
-            employeeShiftDates.set(emp.id, [])
-          }
-          employeeShiftDates.get(emp.id)!.push(date)
-          const currentStreak = consecutiveDays.get(emp.id) || 0
-          consecutiveDays.set(emp.id, currentStreak + 1)
-
-          const schedule = store.schedule_weekday
-          const [startStr, endStr] = schedule.split('-')
-
-          newShifts.push({
-            store_id: store.id,
-            employee_id: emp.id,
-            shift_date: date,
-            start_time: startStr,
-            end_time: endStr,
-            is_auto_scheduled: true,
-          })
-        }
-      }
-    }
-
-    // ===== PASO 3 (NUEVO): FALLBACK FINAL - LLENAR SLOTS VACÍOS CON CUALQUIER TC =====
-    // PRIORIDAD CRÍTICA: Llenar TODOS los slots posibles
-    // Si quedan slots vacíos después de Pasos 1 y 2 → asignar CUALQUIER TC disponible
-    // SIN filtros de no-repetición (eso es secundario frente a llenar slots)
+    // ===== PASO 2: ASIGNAR TC EN TODOS LOS DÍAS (LUN-VIE + slots vacíos de FDS) =====
+    // PRIORIDAD: Llenar slots. TC pueden trabajar múltiples tiendas/día
     for (const date of dates) {
       const weekNum = getWeekNumber(new Date(date))
-      const assignedThisDay = scheduledTodayGlobal.get(date)!
 
       for (const store of stores) {
         const slots = store.slots_required || 2
@@ -654,41 +447,41 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           .filter(s => s.shift_date === date && s.store_id === store.id)
           .map(s => s.employee_id)
 
-        let filled = alreadyAssigned.length
-        if (filled >= slots) continue
+        if (alreadyAssigned.length >= slots) continue
 
-        // Fallback: asignar cualquier TC disponible (sin filtro de no-repetición)
-        const availableTC = completeEmployees.filter(emp => {
-          if (assignedThisDay.has(emp.id)) return false
+        // Candidatos TC: solo filtros críticos (sin no-repetición)
+        let tcCandidates = completeEmployees.filter(emp => {
+          if (!emp.is_active) return false
           if (!hasCorrectPermission(emp, store)) return false
-
-          // Solo límites físicos (no-excluyentes)
           const weekKey = `${emp.id}-${weekNum}`
           if ((shiftsPerWeek.get(weekKey) || 0) >= 6) return false
           if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
-
           return true
         })
 
-        // Asignar hasta completar slots
-        shuffleArray(availableTC) // Variedad en fallback
+        // Ordenar por menos turnos en la tienda (rotación)
+        tcCandidates.sort((a, b) => {
+          const aKey = `${a.id}-${store.id}`
+          const bKey = `${b.id}-${store.id}`
+          return (shiftsAtStoreMap.get(aKey) || 0) - (shiftsAtStoreMap.get(bKey) || 0)
+        })
 
-        for (let i = 0; i < slots - filled && availableTC.length > 0; i++) {
-          const emp = availableTC[i]
+        shuffleArray(tcCandidates)
 
-          assignedThisDay.add(emp.id)
+        // Asignar TC
+        for (const emp of tcCandidates) {
+          if (alreadyAssigned.length >= slots) break
 
-          // Track shifts per week
           const weekKey = `${emp.id}-${weekNum}`
           shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
 
-          // Track consecutive days
           if (!employeeShiftDates.has(emp.id)) {
             employeeShiftDates.set(emp.id, [])
           }
           employeeShiftDates.get(emp.id)!.push(date)
-          const currentStreak = consecutiveDays.get(emp.id) || 0
-          consecutiveDays.set(emp.id, currentStreak + 1)
+          consecutiveDays.set(emp.id, (consecutiveDays.get(emp.id) || 0) + 1)
+
+          alreadyAssigned.push(emp.id)
 
           const dateObj = new Date(date)
           const dateStr = format(dateObj, 'yyyy-MM-dd')
@@ -708,34 +501,17 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       }
     }
 
-    // ===== PASO 4 (NUEVO): FORZAR CICLO 6-DÍAS-CONSECUTIVOS + 1-DESCANSO PARA TC =====
-    // Cada TC debe trabajar 6 días consecutivos y luego descansar 1 día
-    // Esto es CRÍTICO: los TC tienen salario garantizado de 6 días + 1 descanso
-    await enforceSixDayCycleForTC(
-      newShifts,
-      completeEmployees,
-      stores,
-      dates,
-      shiftsPerWeek,
-      consecutiveDays,
-      employeeShiftDates,
-      scheduledTodayGlobal,
-      getWeekNumber,
-      hasCorrectPermission
-    )
-
-    // ===== PASO 5: VERIFICAR Y CORREGIR DÍAS CONSECUTIVOS (> 6) =====
-    await fixConsecutiveDaysViolations(
+    // ===== PASO 3: CORREGIR DÍAS CONSECUTIVOS (> 6) =====
+    // Solo si un empleado trabaja 7+ días seguidos, reasignar el día 7+
+    await fixConsecutiveDaysViolationsSimple(
       newShifts,
       employees,
       stores,
-      consecutiveDays,
       shiftsPerWeek,
+      consecutiveDays,
       employeeShiftDates,
-      lastPairedDate,
       getWeekNumber,
-      hasCorrectPermission,
-      scheduledTodayGlobal
+      hasCorrectPermission
     )
 
     // Registrar parejas de compañeros para todo el período
@@ -880,19 +656,17 @@ function getWeekNumber(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
 }
 
-async function fixConsecutiveDaysViolations(
+async function fixConsecutiveDaysViolationsSimple(
   newShifts: Array<{ store_id: string; employee_id: string; shift_date: string; start_time: string; end_time: string; is_auto_scheduled: boolean }>,
   employees: any[],
   stores: any[],
-  consecutiveDays: Map<string, number>,
   shiftsPerWeek: Map<string, number>,
+  consecutiveDays: Map<string, number>,
   employeeShiftDates: Map<string, string[]>,
-  lastPairedDate: Map<string, string>,
   getWeekNumber: (date: Date) => number,
-  hasCorrectPermission: (emp: any, store: any) => boolean,
-  scheduledTodayGlobal: Map<string, Set<string>>
+  hasCorrectPermission: (emp: any, store: any) => boolean
 ) {
-  // Recalcular rachas después de asignaciones
+  // Construir mapa de shifts por empleado
   const employeeShiftsMap = new Map<string, Array<typeof newShifts[0]>>()
   newShifts.forEach(shift => {
     if (!employeeShiftsMap.has(shift.employee_id)) {
@@ -901,13 +675,11 @@ async function fixConsecutiveDaysViolations(
     employeeShiftsMap.get(shift.employee_id)!.push(shift)
   })
 
-  // Detectar violaciones (> 6 días consecutivos)
-  const violations: Array<{ empId: string; shifts: typeof newShifts; streak: number }> = []
-
-  employeeShiftsMap.forEach((shifts, empId) => {
-    const sorted = shifts.sort((a, b) => a.shift_date.localeCompare(b.shift_date))
+  // Detectar y corregir violaciones (> 6 días consecutivos)
+  for (const [empId, shifts] of employeeShiftsMap) {
+    const sorted = [...shifts].sort((a, b) => a.shift_date.localeCompare(b.shift_date))
     let streak = 1
-    let streakShifts = [sorted[0]]
+    let streakStartIdx = 0
 
     for (let i = 1; i < sorted.length; i++) {
       const prev = new Date(sorted[i - 1].shift_date)
@@ -916,285 +688,24 @@ async function fixConsecutiveDaysViolations(
 
       if (diff === 1) {
         streak++
-        streakShifts.push(sorted[i])
       } else {
         if (streak > 6) {
-          violations.push({ empId, shifts: [...streakShifts], streak })
+          // Corregir: eliminar días desde el 7 en adelante
+          for (let j = streakStartIdx + 6; j < streakStartIdx + streak; j++) {
+            const idx = newShifts.indexOf(sorted[j])
+            if (idx >= 0) newShifts.splice(idx, 1)
+          }
         }
         streak = 1
-        streakShifts = [sorted[i]]
+        streakStartIdx = i
       }
     }
 
+    // Verificar última racha
     if (streak > 6) {
-      violations.push({ empId, shifts: [...streakShifts], streak })
-    }
-  })
-
-  // Corregir violaciones: reasignar días desde el día 7 en adelante
-  for (const violation of violations) {
-    const daysToReassign = violation.shifts.slice(6) // Día 7+
-
-    for (const shift of daysToReassign) {
-      const date = shift.shift_date
-      const storeId = shift.store_id
-      const store = stores.find(s => s.id === storeId)
-      if (!store) continue
-
-      const assignedToday = scheduledTodayGlobal.get(date)
-      if (!assignedToday) continue
-
-      // Buscar sustituto
-      const substitute = await findSubstituteEmployee(
-        violation.empId,
-        store,
-        date,
-        employees,
-        assignedToday,
-        shiftsPerWeek,
-        consecutiveDays,
-        getWeekNumber,
-        hasCorrectPermission
-      )
-
-      if (substitute) {
-        // Reasignar shift al sustituto
-        shift.employee_id = substitute.id
-
-        // Actualizar trackers
-        assignedToday.add(substitute.id)
-        assignedToday.delete(violation.empId)
-
-        const weekNum = getWeekNumber(new Date(date))
-        const weekKey = `${substitute.id}-${weekNum}`
-        shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
-
-        if (!employeeShiftDates.has(substitute.id)) {
-          employeeShiftDates.set(substitute.id, [])
-        }
-        employeeShiftDates.get(substitute.id)!.push(date)
-
-        // Resetear racha del empleado original para este día
-        const origDates = employeeShiftDates.get(violation.empId) || []
-        const idx = origDates.indexOf(date)
-        if (idx >= 0) origDates.splice(idx, 1)
-        employeeShiftDates.set(violation.empId, origDates)
-      } else {
-        // No hay sustituto → eliminar shift (descanso forzoso)
-        const idx = newShifts.indexOf(shift)
+      for (let j = streakStartIdx + 6; j < streakStartIdx + streak; j++) {
+        const idx = newShifts.indexOf(sorted[j])
         if (idx >= 0) newShifts.splice(idx, 1)
-
-        assignedToday.delete(violation.empId)
-
-        const origDates = employeeShiftDates.get(violation.empId) || []
-        const idxDate = origDates.indexOf(date)
-        if (idxDate >= 0) origDates.splice(idxDate, 1)
-        employeeShiftDates.set(violation.empId, origDates)
-      }
-    }
-  }
-}
-
-async function findSubstituteEmployee(
-  excludeEmpId: string,
-  store: any,
-  date: string,
-  employees: any[],
-  assignedToday: Set<string>,
-  shiftsPerWeek: Map<string, number>,
-  consecutiveDays: Map<string, number>,
-  getWeekNumber: (date: Date) => number,
-  hasCorrectPermission: (emp: any, store: any) => boolean
-): Promise<any> {
-  const weekNum = getWeekNumber(new Date(date))
-
-  const candidates = employees.filter(emp => {
-    if (emp.id === excludeEmpId) return false
-    if (assignedToday.has(emp.id)) return false
-    if (!hasCorrectPermission(emp, store)) return false
-
-    const weekKey = `${emp.id}-${weekNum}`
-    if ((shiftsPerWeek.get(weekKey) || 0) >= 6) return false
-    if ((consecutiveDays.get(emp.id) || 0) >= 6) return false
-
-    return true
-  })
-
-  if (candidates.length === 0) return null
-
-  // BUG #6 FIX: Ordenar por menos turnos en la tienda (14 días)
-  candidates.sort((a, b) => {
-    return 0
-  })
-
-  return candidates[0]
-}
-
-async function enforceSixDayCycleForTC(
-  newShifts: Array<{ store_id: string; employee_id: string; shift_date: string; start_time: string; end_time: string; is_auto_scheduled: boolean }>,
-  completeEmployees: any[],
-  stores: any[],
-  dates: string[],
-  shiftsPerWeek: Map<string, number>,
-  consecutiveDays: Map<string, number>,
-  employeeShiftDates: Map<string, string[]>,
-  scheduledTodayGlobal: Map<string, Set<string>>,
-  getWeekNumber: (date: Date) => number,
-  hasCorrectPermission: (emp: any, store: any) => boolean
-) {
-  // PRIORIDAD: Cada TC debe trabajar 6 días consecutivos + 1 descanso
-  // Si un TC tiene menos de 6 turnos en la semana y hay slots disponibles → ASIGNAR
-
-  for (const emp of completeEmployees) {
-    // Calcular días trabajados esta semana y racha actual
-    const empShifts = employeeShiftDates.get(emp.id) || []
-    if (empShifts.length === 0) {
-      // Empleado sin asignar → buscar primer día disponible y asignar 6 consecutivos
-      await assignSixDayCycle(emp, dates, stores, newShifts, shiftsPerWeek, consecutiveDays, employeeShiftDates, scheduledTodayGlobal, getWeekNumber, hasCorrectPermission)
-    } else {
-      // Verificar si terminó racha de 6 y necesita descanso
-      const sortedShifts = [...empShifts].sort()
-      const lastShiftDate = sortedShifts[sortedShifts.length - 1]
-      const lastShiftIdx = dates.indexOf(lastShiftDate)
-
-      if (lastShiftIdx >= 0) {
-        // Verificar racha actual
-        let streak = 1
-        for (let i = sortedShifts.length - 2; i >= 0; i--) {
-          const prev = new Date(sortedShifts[i])
-          const curr = new Date(sortedShifts[i + 1])
-          const diff = Math.floor((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24))
-          if (diff === 1) {
-            streak++
-          } else {
-            break
-          }
-        }
-
-        // Si racha < 6 y hay día disponible después del último turno → asignar
-        if (streak < 6 && lastShiftIdx < dates.length - 1) {
-          const nextDay = dates[lastShiftIdx + 1]
-          const alreadyHasShiftNextDay = empShifts.includes(nextDay)
-
-          if (!alreadyHasShiftNextDay) {
-            // Verificar si puede trabajar (límite semanal)
-            const weekNum = getWeekNumber(new Date(nextDay))
-            const weekKey = `${emp.id}-${weekNum}`
-            const currentWeekShifts = shiftsPerWeek.get(weekKey) || 0
-
-            if (currentWeekShifts < 6) {
-              // Buscar tienda con slot disponible
-              for (const store of stores) {
-                const existingShifts = newShifts.filter(s => s.shift_date === nextDay && s.store_id === store.id)
-                const slots = store.slots_required || 2
-
-                if (existingShifts.length < slots) {
-                  // Asignar empleado a esta tienda
-                  const schedule = store.schedule_weekday
-                  const [startStr, endStr] = schedule.split('-')
-
-                  newShifts.push({
-                    store_id: store.id,
-                    employee_id: emp.id,
-                    shift_date: nextDay,
-                    start_time: startStr,
-                    end_time: endStr,
-                    is_auto_scheduled: true,
-                  })
-
-                  // Actualizar trackers
-                  scheduledTodayGlobal.get(nextDay)?.add(emp.id)
-                  shiftsPerWeek.set(weekKey, currentWeekShifts + 1)
-
-                  if (!employeeShiftDates.has(emp.id)) {
-                    employeeShiftDates.set(emp.id, [])
-                  }
-                  employeeShiftDates.get(emp.id)!.push(nextDay)
-
-                  const currentStreak = consecutiveDays.get(emp.id) || 0
-                  consecutiveDays.set(emp.id, currentStreak + 1)
-
-                  break
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-async function assignSixDayCycle(
-  emp: any,
-  dates: string[],
-  stores: any[],
-  newShifts: Array<{ store_id: string; employee_id: string; shift_date: string; start_time: string; end_time: string; is_auto_scheduled: boolean }>,
-  shiftsPerWeek: Map<string, number>,
-  consecutiveDays: Map<string, number>,
-  employeeShiftDates: Map<string, string[]>,
-  scheduledTodayGlobal: Map<string, Set<string>>,
-  getWeekNumber: (date: Date) => number,
-  hasCorrectPermission: (emp: any, store: any) => boolean
-) {
-  // Asignar 6 días consecutivos empezando desde el primer día disponible
-  let startIdx = 0
-
-  // Encontrar primer día sin asignar
-  for (let i = 0; i < dates.length; i++) {
-    const date = dates[i]
-    const assignedToday = scheduledTodayGlobal.get(date)
-    if (!assignedToday?.has(emp.id)) {
-      startIdx = i
-      break
-    }
-  }
-
-  // Asignar 6 días consecutivos (o hasta donde haya espacio)
-  let assigned = 0
-  for (let i = startIdx; i < Math.min(startIdx + 6, dates.length) && assigned < 6; i++) {
-    const date = dates[i]
-    const assignedToday = scheduledTodayGlobal.get(date)
-
-    // Verificar límites
-    const weekNum = getWeekNumber(new Date(date))
-    const weekKey = `${emp.id}-${weekNum}`
-    if ((shiftsPerWeek.get(weekKey) || 0) >= 6) break
-    if ((consecutiveDays.get(emp.id) || 0) >= 6) break
-
-    // Buscar tienda con slot disponible
-    for (const store of stores) {
-      if (!hasCorrectPermission(emp, store)) continue
-
-      const existingShifts = newShifts.filter(s => s.shift_date === date && s.store_id === store.id)
-      const slots = store.slots_required || 2
-
-      if (existingShifts.length < slots && !assignedToday?.has(emp.id)) {
-        const schedule = store.schedule_weekday
-        const [startStr, endStr] = schedule.split('-')
-
-        newShifts.push({
-          store_id: store.id,
-          employee_id: emp.id,
-          shift_date: date,
-          start_time: startStr,
-          end_time: endStr,
-          is_auto_scheduled: true,
-        })
-
-        assignedToday?.add(emp.id)
-        shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
-
-        if (!employeeShiftDates.has(emp.id)) {
-          employeeShiftDates.set(emp.id, [])
-        }
-        employeeShiftDates.get(emp.id)!.push(date)
-
-        const currentStreak = consecutiveDays.get(emp.id) || 0
-        consecutiveDays.set(emp.id, currentStreak + 1)
-
-        assigned++
-        break
       }
     }
   }
