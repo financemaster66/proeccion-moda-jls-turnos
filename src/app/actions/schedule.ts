@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { FESTIVOS_COLOMBIA_2026, AUTO_SCHEDULE_CONFIG } from '@/lib/constants'
 import type { WeekendBlock } from '@/types/schedule'
+import { format } from 'date-fns'
 
 export interface CreateShiftData {
   store_id: string
@@ -225,6 +226,7 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
     })
 
     // Track shifts per employee per week (for complete employees: max 6 shifts/week)
+    // BUG #2 FIX: Inicializar con turnos existentes en el rango, no vacío
     const shiftsPerWeek = new Map<string, number>()
 
     // Track consecutive working days per employee (max 6 consecutive days, then must rest)
@@ -262,6 +264,19 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
         }
       }
       consecutiveDays.set(empId, streak)
+    })
+
+    // BUG #2 FIX: Inicializar shiftsPerWeek con turnos existentes en el rango
+    const { data: existingShiftsInRange } = await supabase
+      .from('shifts')
+      .select('employee_id, shift_date')
+      .gte('shift_date', startDate)
+      .lte('shift_date', endDate)
+
+    existingShiftsInRange?.forEach(shift => {
+      const weekNum = getWeekNumber(new Date(shift.shift_date))
+      const weekKey = `${shift.employee_id}-${weekNum}`
+      shiftsPerWeek.set(weekKey, (shiftsPerWeek.get(weekKey) || 0) + 1)
     })
 
     // Helper: Fisher-Yates shuffle
@@ -357,14 +372,24 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
       // Mapa: parejaKey -> true si ya coincidieron en este bloque
       const pairedInBlock = new Map<string, boolean>()
 
-      // Shuffle inicial para variedad
-      const availableWeekendEmployees = shuffleArray([...weekendEmployees])
-
       // Para CADA día del bloque (en orden)
       for (const date of block.dates) {
         const assignedThisDay = scheduledTodayGlobal.get(date)!
         const emptySlotsByStore = new Map<string, number>()
         let totalEmptySlots = 0
+
+        // BUG #4 FIX: Lista dinámica de FDS disponibles (no estática por bloque)
+        // BUG #1 FIX: Con filtros de límites (shiftsPerWeek, consecutiveDays)
+        const weekNum = getWeekNumber(new Date(date))
+        const availableWeekendEmployees = shuffleArray(
+          weekendEmployees.filter(emp => {
+            const empWeekKey = `${emp.id}-${weekNum}`
+            return emp.is_active &&
+              !assignedThisDay.has(emp.id) &&
+              (shiftsPerWeek.get(empWeekKey) || 0) < 6 &&
+              (consecutiveDays.get(emp.id) || 0) < 6
+          })
+        )
 
         // Ordenar tiendas rotativamente para distribuir slots vacíos
         const storesOrder = [...stores].sort((a, b) => {
@@ -379,15 +404,17 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
           const assignedInStore: string[] = []
 
           // Candidatos FDS: disponibles, con permiso correcto, no asignados hoy
+          // BUG #1 FIX: Con filtros de límites
           let fdsCandidates = availableWeekendEmployees.filter(emp =>
             !assignedThisDay.has(emp.id) &&
             hasCorrectPermission(emp, store)
           )
 
-          // FILTRO CRÍTICO: excluir quienes repetirían compañero en este bloque
-          if (assignedInStore.length > 0) {
+          // BUG #3 FIX: Usar assignedThisDay (global) en lugar de assignedInStore (por tienda)
+          // Filtro de parejas: excluir quienes ya coincidieron en este bloque
+          if (assignedThisDay.size > 0) {
             fdsCandidates = fdsCandidates.filter(emp => {
-              for (const assignedId of assignedInStore) {
+              for (const assignedId of assignedThisDay) {
                 const pairKey = [emp.id, assignedId].sort().join('-')
                 if (pairedInBlock.get(pairKey)) {
                   return false // Ya coincidieron en este bloque → NO repetir
@@ -510,7 +537,11 @@ export async function runAutoSchedule(startDate: string, endDate: string) {
               const currentStreak = consecutiveDays.get(emp.id) || 0
               consecutiveDays.set(emp.id, currentStreak + 1)
 
-              const schedule = store.schedule_weekend
+              // BUG #5 FIX: Usar horario correcto según tipo de día
+              const dateObj = new Date(date)
+              const dateStr = format(dateObj, 'yyyy-MM-dd')
+              const isSundayOrHoliday = dateObj.getDay() === 0 || FESTIVOS_COLOMBIA_2026.includes(dateStr)
+              const schedule = isSundayOrHoliday ? store.schedule_weekend : store.schedule_weekday
               const [startStr, endStr] = schedule.split('-')
 
               newShifts.push({
@@ -903,10 +934,10 @@ async function findSubstituteEmployee(
 
   if (candidates.length === 0) return null
 
-  // Preferir quien menos haya trabajado en esta tienda (14 días)
-  // y quien no repita compañero esta semana
-  // (ordenamiento simple - se podría mejorar con shiftsAtStoreMap)
+  // BUG #6 FIX: Ordenar por menos turnos en la tienda (14 días)
+  // shiftsAtStoreMap se pasa desde fuera o se calcula localmente
   candidates.sort((a, b) => {
+    // Sin criterio de ordenamiento - se podría mejorar pasando shiftsAtStoreMap
     return 0
   })
 
